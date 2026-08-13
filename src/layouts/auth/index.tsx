@@ -31,7 +31,7 @@ const AuthLayout: FC = () => {
             All rights reserved, {new Date().getFullYear()}. Powered by
             <a target="_blank" href="https://adjuma.io" rel="noreferrer">
               {" "}
-              Molidom
+              Humble
             </a>
           </p>
         </div>
