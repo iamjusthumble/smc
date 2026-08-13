@@ -1,0 +1,24 @@
+.custom-zoom [data-rmiz-modal-overlay],
+.custom-zoom [data-rmiz-modal-img] {
+  transition-duration: 0.3s;
+  transition-timing-function: linear;
+}
+.custom-zoom [data-rmiz-modal-overlay="hidden"] {
+  background-color: rgb(107, 114, 128, 0);
+}
+.custom-zoom [data-rmiz-modal-overlay="visible"] {
+  background-color: rgb(107, 114, 128, 0.25);
+}
+.custom-zoom [data-rmiz-btn-unzoom] {
+  background-color: rgb(37, 99, 235);
+  color: white;
+}
+.custom-zoom [data-rmiz-btn-unzoom]:focus-visible {
+  outline-offset: 0.4rem;
+  outline: 0.2rem solid rgb(37, 99, 235);
+}
+.custom-zoom [data-rmiz-modal-img] {
+  background-color: white;
+  border-radius: 10px;
+  margin: auto auto;
+}
