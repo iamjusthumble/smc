@@ -1,17 +1,21 @@
-import { Navigate, Outlet } from "react-location";
+import { Navigate, Outlet, useLocation } from "react-location";
 import Navbar from "../../components/navigation/navbar";
-import { currentTokenVar, currentUserVar } from "../../apollo/cache/auth";
-import { useReactiveVar } from "@apollo/client";
+import { CenterLoader } from "../../components/loaders";
+import { useAuth } from "../../context/auth-context";
 
 export default function Layout() {
-  const currentToken = useReactiveVar(currentTokenVar);
-  const currentUser = useReactiveVar(currentUserVar);
+  const { session, loading } = useAuth();
+  const location = useLocation();
 
-  if (!currentToken || !currentUser) {
+  if (loading) {
+    return <CenterLoader />;
+  }
+
+  if (!session) {
     return (
       <Navigate
         to={"/signin"}
-        // search={{ redirect: location.current.href }}
+        search={{ redirect: location.current.pathname }}
         replace
       />
     );

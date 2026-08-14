@@ -1,7 +1,7 @@
-import { useReactiveVar } from "@apollo/client";
 import { FC } from "react";
 import { useSearch, MakeGenerics, Navigate, Outlet } from "react-location";
-import { currentTokenVar } from "../../apollo/cache/auth";
+import { useAuth } from "../../context/auth-context";
+import { CenterLoader } from "../../components/loaders";
 import bgImg from "../../assets/images/signin.jpg";
 
 export type AuthLocationGenerics = MakeGenerics<{
@@ -12,11 +12,13 @@ export type AuthLocationGenerics = MakeGenerics<{
 
 const AuthLayout: FC = () => {
   const search = useSearch<AuthLocationGenerics>();
-  const currentToken = useReactiveVar(currentTokenVar);
+  const { session, loading } = useAuth();
 
-  if (currentToken) {
-    // check if theres a token
-    // if yes hit server to reauthenticate and redirect to app
+  if (loading) {
+    return <CenterLoader />;
+  }
+
+  if (session) {
     return <Navigate to={search?.redirect ?? "/"} replace />;
   }
   return (

@@ -1,56 +1,32 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 import { Link, useNavigate, useSearch } from "react-location";
 import { FC, useEffect, useState } from "react";
-import { currentPushTokenVar, setAuth } from "../../apollo/cache/auth";
+import { useAuth } from "../../context/auth-context";
 import TextInput from "../../components/core/text-input";
 import { useFormik } from "formik";
-import { gql, useMutation, useReactiveVar } from "@apollo/client";
 import * as Yup from "yup";
-import toast from "react-hot-toast";
-
-const LOGIN_USER_MUTATION = gql`
-  mutation LoginAdmin($email: String!, $password: String!) {
-    loginAdmin(email: $email, password: $password) {
-      user {
-        _id
-        fullName
-        email
-        phone
-        profilePicture
-        role {
-          _id
-          name
-          permissions
-          description
-          createdAt
-          updatedAt
-        }
-        createdAt
-        updatedAt
-        busCompany {
-          logo
-          _id
-          mobileNumber
-          name
-        }
-      }
-      token
-    }
-  }
-`;
+import { LocationGenerics } from "../../router/location";
+import { ExclamationCircleIcon } from "@heroicons/react/20/solid";
 
 interface FormValues {
   email: string;
   password: string;
 }
 
+// Supabase's raw auth error messages, mapped to something a user can act on.
+// Anything not listed here falls back to the raw message.
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  "Invalid login credentials": "Incorrect email or password.",
+};
+
 const LoginPage: FC = () => {
   useEffect(() => {
-    document.title = "Login | Adjuma";
+    document.title = "Login | BusBuk";
   }, []);
   const navigate = useNavigate();
-
-  const [login, { loading }] = useMutation(LOGIN_USER_MUTATION);
+  const search = useSearch<LocationGenerics>();
+  const { signIn } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const { handleSubmit, ...form } = useFormik({
     initialValues: {
@@ -68,30 +44,17 @@ const LoginPage: FC = () => {
       password: Yup.string().required("Password is required"),
     }),
     onSubmit: async (values: FormValues) => {
-      const response = await login({
-        variables: {
-          email: values.email,
-          password: values.password,
-        },
-      });
-
-      if (response.data.loginAdmin?.user) {
-        const { user, token } = response.data.loginAdmin;
-        toast(
-          JSON.stringify({
-            type: "success",
-            title: "Login Success",
-            description: `Logged in as ${user.email}`,
-          })
-        );
-        setAuth({
-          user,
-          token,
-        });
-        return navigate({
-          replace: true,
-          to: "/",
-        });
+      setAuthError(null);
+      setSubmitting(true);
+      try {
+        const { error } = await signIn(values.email, values.password);
+        if (error) {
+          setAuthError(AUTH_ERROR_MESSAGES[error.message] ?? error.message);
+          return;
+        }
+        navigate({ replace: true, to: search?.redirect ?? "/" });
+      } finally {
+        setSubmitting(false);
       }
     },
   });
@@ -137,13 +100,23 @@ const LoginPage: FC = () => {
                 </div>
               </div>
 
+              {authError && (
+                <div className="flex items-start gap-x-2 rounded-md bg-red-50 p-3">
+                  <ExclamationCircleIcon
+                    className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500"
+                    aria-hidden="true"
+                  />
+                  <p className="text-sm text-red-700">{authError}</p>
+                </div>
+              )}
+
               <div>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                  disabled={submitting}
+                  className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {loading ? "Signing in..." : "Sign in"}
+                  {submitting ? "Signing in..." : "Sign in"}
                 </button>
               </div>
               <div className="flex items-center justify-between">

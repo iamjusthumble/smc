@@ -8,10 +8,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import config from "./config";
 import { setAuth, currentTokenVar } from "./apollo/cache/auth";
 import { FAKE_ADMIN_USER, FAKE_TOKEN } from "./mocks/fixtures";
+import { AuthProvider } from "./context/auth-context";
 
-// Backend is unreachable, so real login can never populate a session.
-// Seed a fake logged-in admin (unless a real session already exists) so the
-// app is navigable instead of stuck redirecting to /signin.
+// Real Supabase auth (src/context/auth-context.tsx) now gates the app.
+// Buses/Drivers/Bookings/Trips/Dashboard/Settings still render mock data,
+// though, and read this fake admin off `currentUserVar` directly (company,
+// permissions, etc.) — so it still needs seeding on every load, unconditionally,
+// purely to keep those pages fed. It no longer has any bearing on access control.
 if (config.mockBackend && !currentTokenVar()) {
   setAuth({ user: FAKE_ADMIN_USER, token: FAKE_TOKEN });
 }
@@ -30,7 +33,9 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>
 );

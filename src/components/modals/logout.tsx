@@ -5,9 +5,8 @@ import {
   ExclamationTriangleIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { set } from "lodash";
 import { useNavigate } from "react-location";
-import { clearAuth } from "../../apollo/cache/auth";
+import { useAuth } from "../../context/auth-context";
 
 export default function Logout({
   showLogoutModal,
@@ -17,6 +16,7 @@ export default function Logout({
   setshowLogoutModal: any;
 }) {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   return (
     <Transition.Root show={showLogoutModal} as={Fragment}>
       <Dialog as="div" className="relative z-10" onClose={setshowLogoutModal}>
@@ -73,9 +73,10 @@ export default function Logout({
                   <button
                     type="button"
                     className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 sm:ml-3"
-                    onClick={() => {
-                      clearAuth();
+                    onClick={async () => {
+                      await signOut();
                       setshowLogoutModal(false);
+                      navigate({ to: "/signin", replace: true });
                     }}
                   >
                     Logout
