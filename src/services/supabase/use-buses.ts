@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CreateBusPayload,
   UpdateBusPayload,
+  countTripsForBus,
   createBus,
   deleteBus,
   getBus,
@@ -19,6 +20,13 @@ export const useBus = (id: string | undefined) =>
   useQuery({
     queryKey: ["buses", id],
     queryFn: () => getBus(id as string),
+    enabled: !!id,
+  });
+
+export const useTripCountForBus = (id: string | undefined) =>
+  useQuery({
+    queryKey: ["buses", id, "trip-count"],
+    queryFn: () => countTripsForBus(id as string),
     enabled: !!id,
   });
 

@@ -21,6 +21,8 @@ import {
   HandThumbUpIcon,
   HandThumbDownIcon,
   PlusIcon,
+  NoSymbolIcon,
+  ArrowPathIcon,
 } from "@heroicons/react/24/outline";
 import "react-tooltip/dist/react-tooltip.css";
 import wrapClick from "../../utils/wrap-click";
@@ -45,6 +47,7 @@ const Actions = [
   "goto",
   "clone",
   "decommission",
+  "reactivate",
   "investigate",
   "cancel",
   "disapprove",
@@ -65,7 +68,8 @@ const ActionIcons: { [key in Action]: typeof EyeIcon } = {
   send: PaperAirplaneIcon,
   update: PencilSquareIcon,
   view: EyeIcon,
-  decommission: TrashIcon,
+  decommission: NoSymbolIcon,
+  reactivate: ArrowPathIcon,
   create: PlusIcon,
   expand: ArrowsPointingOutIcon,
   goto: ArrowTopRightOnSquareIcon,

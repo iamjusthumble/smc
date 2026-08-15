@@ -18,9 +18,11 @@ import withPermissions from "../../utils/with-permissions";
 import CreateBus from "./create";
 import UpdateBus from "./update";
 import DeleteBus from "./delete";
-import { useBuses } from "../../services/supabase/use-buses";
+import DecommissionBus from "./decommission";
+import { useBuses, useUpdateBus } from "../../services/supabase/use-buses";
 import { ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import { BusStatus } from "../../services/supabase/types";
+import toast from "react-hot-toast";
 
 const filterItems = [
   {
@@ -52,6 +54,7 @@ const BusesPage = () => {
   const navigate = useNavigate<LocationGenerics>();
 
   const { data: buses, isLoading, isError, error, refetch } = useBuses();
+  const updateBus = useUpdateBus();
 
   const dispatchAction =
     (id: string, action: Exclude<Action, "expand" | "goto" | "clone">) =>
@@ -64,6 +67,22 @@ const BusesPage = () => {
         }),
       });
     };
+
+  const handleReactivate = (id: string, vehicleNumber: string) => async () => {
+    try {
+      await updateBus.mutateAsync({ id, payload: { status: "active" } });
+      toast(
+        JSON.stringify({ type: "success", title: `${vehicleNumber} reactivated` })
+      );
+    } catch (e: any) {
+      toast(
+        JSON.stringify({
+          type: "failed",
+          title: e?.message || "Couldn't reactivate this bus. Please try again.",
+        })
+      );
+    }
+  };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const searchTerm = e.target.value;
@@ -306,34 +325,40 @@ const BusesPage = () => {
                       </td>
                     </tr>
                   )}
-                  renderItem={(item) => (
+                  renderItem={(item) => {
+                    const isDecommissioned = item.status === "decommissioned";
+                    const primaryCellClass = classNames(
+                      isDecommissioned ? "text-gray-400" : "text-gray-900",
+                      "font-manrope"
+                    );
+                    return (
                     <tr
                       key={item.id}
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={wrapClick(dispatchAction(item.id, "view"))}
                     >
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-center text-gray-500 border-b border-gray-200 ">
-                        <div className="text-gray-900 font-manrope">
+                        <div className={primaryCellClass}>
                           {item?.vehicle_number || "N/A"}
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-center text-gray-500 border-b border-gray-200 ">
-                        <div className="text-gray-900 font-manrope ">
+                        <div className={primaryCellClass}>
                           {item?.model || "N/A"}
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-center text-gray-500 border-b border-gray-200 ">
-                        <div className="text-gray-900 font-manrope">
+                        <div className={primaryCellClass}>
                           {item?.make_year || "N/A"}
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-center text-gray-500 border-b border-gray-200">
-                        <div className="text-gray-900 font-manrope">
+                        <div className={primaryCellClass}>
                           {item?.color || "N/A"}
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-center text-gray-500 border-b border-gray-200">
-                        <div className="text-gray-900 font-manrope">
+                        <div className={primaryCellClass}>
                           {item?.seat_count || "N/A"}
                         </div>
                       </td>
@@ -373,14 +398,27 @@ const BusesPage = () => {
                             action="update"
                             onClick={dispatchAction(item.id, "update")}
                           />
-                          <ActionButton
-                            action="decommission"
-                            onClick={dispatchAction(item.id, "decommission")}
-                          />
+                          {isDecommissioned ? (
+                            <ActionButton
+                              action="reactivate"
+                              tooltip="Reactivate"
+                              onClick={handleReactivate(
+                                item.id,
+                                item.vehicle_number
+                              )}
+                            />
+                          ) : (
+                            <ActionButton
+                              action="decommission"
+                              tooltip="Decommission"
+                              onClick={dispatchAction(item.id, "decommission")}
+                            />
+                          )}
                         </div>
                       </td>
                     </tr>
-                  )}
+                    );
+                  }}
                 />
               )}
             </div>
@@ -396,11 +434,15 @@ const BusesPage = () => {
               open={modal === "update"}
               setOpen={(val: boolean) => setModal(val ? "update" : undefined)}
             />
-            <DeleteBus
+            <DecommissionBus
               open={modal === "decommission"}
               setOpen={(val: boolean) =>
                 setModal(val ? "decommission" : undefined)
               }
+            />
+            <DeleteBus
+              open={modal === "delete"}
+              setOpen={(val: boolean) => setModal(val ? "delete" : undefined)}
             />
           </>
         )}

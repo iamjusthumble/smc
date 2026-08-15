@@ -108,3 +108,14 @@ export const getDocumentUrl = async (path: string): Promise<string> => {
   if (error) throw error;
   return data.signedUrl;
 };
+
+// Head count only — used to guard deleteBus (a bus with trip history should
+// be decommissioned, not deleted) without fetching the trip rows themselves.
+export const countTripsForBus = async (busId: string): Promise<number> => {
+  const { count, error } = await supabase
+    .from("trips")
+    .select("*", { count: "exact", head: true })
+    .eq("bus_id", busId);
+  if (error) throw error;
+  return count ?? 0;
+};

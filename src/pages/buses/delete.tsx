@@ -1,10 +1,19 @@
 import { Fragment } from "react";
 import { Dialog, Transition } from "@headlessui/react";
-import { ExclamationTriangleIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import {
+  ExclamationTriangleIcon,
+  NoSymbolIcon,
+  XMarkIcon,
+} from "@heroicons/react/24/outline";
 import { useNavigate, useSearch } from "react-location";
 import toast from "react-hot-toast";
 import { LocationGenerics } from "../../router/location";
-import { useBus, useDeleteBus } from "../../services/supabase/use-buses";
+import {
+  useBus,
+  useDeleteBus,
+  useTripCountForBus,
+  useUpdateBus,
+} from "../../services/supabase/use-buses";
 
 export default function DeleteBus({
   open,
@@ -16,7 +25,11 @@ export default function DeleteBus({
   const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
   const { data: bus } = useBus(open ? searchParams.id : undefined);
+  const { data: tripCount, isLoading: countLoading } = useTripCountForBus(
+    open ? searchParams.id : undefined
+  );
   const deleteBus = useDeleteBus();
+  const updateBus = useUpdateBus();
 
   const close = () => {
     setOpen(false);
@@ -45,6 +58,32 @@ export default function DeleteBus({
       );
     }
   };
+
+  const handleDecommissionInstead = async () => {
+    if (!bus) return;
+    try {
+      await updateBus.mutateAsync({
+        id: bus.id,
+        payload: { status: "decommissioned" },
+      });
+      toast(
+        JSON.stringify({
+          type: "success",
+          title: `${bus.vehicle_number} marked as decommissioned`,
+        })
+      );
+      close();
+    } catch (e: any) {
+      toast(
+        JSON.stringify({
+          type: "failed",
+          title: e?.message || "Couldn't decommission this bus. Please try again.",
+        })
+      );
+    }
+  };
+
+  const blocked = (tripCount ?? 0) > 0;
 
   return (
     <Transition.Root show={open} as={Fragment}>
@@ -83,46 +122,92 @@ export default function DeleteBus({
                     <XMarkIcon className="h-5 w-5" aria-hidden="true" />
                   </button>
                 </div>
-                <div className="sm:flex sm:items-start justify-center">
-                  <div className="mt-3 text-center sm:mt-0 sm:text-left">
-                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100 sm:mx-0">
-                      <ExclamationTriangleIcon
-                        className="h-5 w-5 text-red-600"
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <Dialog.Title
-                      as="h3"
-                      className="mt-3 text-base text-center font-semibold leading-6 text-gray-900 sm:text-left"
-                    >
-                      Delete {bus?.vehicle_number ?? "this bus"}?
-                    </Dialog.Title>
-                    <div className="mt-2 w-60 md:w-72 mb-7">
-                      <p className="text-sm text-gray-700 text-center sm:text-left break-words">
-                        This permanently removes {bus?.vehicle_number ?? "this bus"}{" "}
-                        and its documents. Trips that reference it keep their history
-                        — they&apos;ll just no longer show an assigned bus.
-                      </p>
+
+                {countLoading ? (
+                  <div className="py-8 text-center text-sm text-gray-500">
+                    Checking trip history...
+                  </div>
+                ) : blocked ? (
+                  <div className="sm:flex sm:items-start justify-center">
+                    <div className="mt-3 text-center sm:mt-0 sm:text-left">
+                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 sm:mx-0">
+                        <NoSymbolIcon
+                          className="h-5 w-5 text-amber-600"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <Dialog.Title
+                        as="h3"
+                        className="mt-3 text-base text-center font-semibold leading-6 text-gray-900 sm:text-left"
+                      >
+                        Can&apos;t delete {bus?.vehicle_number ?? "this bus"}
+                      </Dialog.Title>
+                      <div className="mt-2 w-60 md:w-72 mb-7">
+                        <p className="text-sm text-gray-700 text-center sm:text-left break-words">
+                          This bus is linked to {tripCount} trip
+                          {tripCount === 1 ? "" : "s"} and can&apos;t be deleted.
+                          Decommission it instead to retire it while keeping its
+                          records.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="mt-5 sm:mt-4 sm:flex gap-x-3 px-2 justify-center sm:justify-start">
-                  <button
-                    type="button"
-                    disabled={deleteBus.isLoading}
-                    className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-60 sm:ml-3"
-                    onClick={handleDelete}
-                  >
-                    {deleteBus.isLoading ? "Deleting..." : "Delete"}
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-3 inline-flex w-28 md:w-32 justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0"
-                    onClick={close}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                ) : (
+                  <div className="sm:flex sm:items-start justify-center">
+                    <div className="mt-3 text-center sm:mt-0 sm:text-left">
+                      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-100 sm:mx-0">
+                        <ExclamationTriangleIcon
+                          className="h-5 w-5 text-red-600"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <Dialog.Title
+                        as="h3"
+                        className="mt-3 text-base text-center font-semibold leading-6 text-gray-900 sm:text-left"
+                      >
+                        Delete {bus?.vehicle_number ?? "this bus"}?
+                      </Dialog.Title>
+                      <div className="mt-2 w-60 md:w-72 mb-7">
+                        <p className="text-sm text-gray-700 text-center sm:text-left break-words">
+                          This permanently removes{" "}
+                          {bus?.vehicle_number ?? "this bus"} and its documents.
+                          This can&apos;t be undone.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!countLoading && (
+                  <div className="mt-5 sm:mt-4 sm:flex gap-x-3 px-2 justify-center sm:justify-start">
+                    {blocked ? (
+                      <button
+                        type="button"
+                        disabled={updateBus.isLoading}
+                        className="inline-flex w-36 md:w-40 mr-2 md:mr-0 justify-center rounded-md bg-amber-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-500 disabled:opacity-60 sm:ml-3"
+                        onClick={handleDecommissionInstead}
+                      >
+                        {updateBus.isLoading ? "Saving..." : "Decommission instead"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={deleteBus.isLoading}
+                        className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-60 sm:ml-3"
+                        onClick={handleDelete}
+                      >
+                        {deleteBus.isLoading ? "Deleting..." : "Delete"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="mt-3 inline-flex w-28 md:w-32 justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0"
+                      onClick={close}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </Dialog.Panel>
             </Transition.Child>
           </div>

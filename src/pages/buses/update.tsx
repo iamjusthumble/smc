@@ -284,6 +284,17 @@ export default function UpdateBus({
           >
             Cancel
           </button>
+          <button
+            type="button"
+            className="mr-auto text-sm font-medium text-gray-400 hover:text-red-600 focus:outline-none"
+            onClick={() => {
+              navigate({
+                search: (old) => ({ ...old, modal: "delete" }),
+              });
+            }}
+          >
+            Delete bus
+          </button>
         </>
       )}
     >
