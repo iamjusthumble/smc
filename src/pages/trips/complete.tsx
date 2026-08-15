@@ -1,12 +1,12 @@
 import { Fragment } from "react";
 import { Dialog, Transition } from "@headlessui/react";
-import { ArchiveBoxIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { CheckCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useNavigate, useSearch } from "react-location";
 import toast from "react-hot-toast";
 import { LocationGenerics } from "../../router/location";
-import { useDriver, useUpdateDriver } from "../../services/supabase/use-drivers";
+import { useTrip, useUpdateTrip } from "../../services/supabase/use-trips";
 
-export default function RetireDriver({
+export default function CompleteTrip({
   open,
   setOpen,
 }: {
@@ -15,8 +15,8 @@ export default function RetireDriver({
 }) {
   const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const { data: driver } = useDriver(open ? searchParams.id : undefined);
-  const updateDriver = useUpdateDriver();
+  const { data: trip } = useTrip(open ? searchParams.id : undefined);
+  const updateTrip = useUpdateTrip();
 
   const close = () => {
     setOpen(false);
@@ -25,25 +25,20 @@ export default function RetireDriver({
     });
   };
 
-  const handleRetire = async () => {
-    if (!driver) return;
+  const handleComplete = async () => {
+    if (!trip) return;
     try {
-      await updateDriver.mutateAsync({
-        id: driver.id,
-        payload: { status: "retired" },
+      await updateTrip.mutateAsync({
+        id: trip.id,
+        payload: { status: "completed" },
       });
-      toast(
-        JSON.stringify({
-          type: "success",
-          title: `${driver.full_name} marked as retired`,
-        })
-      );
+      toast(JSON.stringify({ type: "success", title: "Trip marked as completed" }));
       close();
     } catch (e: any) {
       toast(
         JSON.stringify({
           type: "failed",
-          title: e?.message || "Couldn't retire this driver. Please try again.",
+          title: e?.message || "Couldn't complete this trip. Please try again.",
         })
       );
     }
@@ -88,9 +83,9 @@ export default function RetireDriver({
                 </div>
                 <div className="sm:flex sm:items-start justify-center">
                   <div className="mt-3 text-center sm:mt-0 sm:text-left">
-                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 sm:mx-0">
-                      <ArchiveBoxIcon
-                        className="h-5 w-5 text-gray-600"
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-green-100 sm:mx-0">
+                      <CheckCircleIcon
+                        className="h-5 w-5 text-green-600"
                         aria-hidden="true"
                       />
                     </div>
@@ -98,13 +93,12 @@ export default function RetireDriver({
                       as="h3"
                       className="mt-3 text-base text-center font-semibold leading-6 text-gray-900 sm:text-left"
                     >
-                      Retire {driver?.full_name ?? "this driver"}?
+                      Mark this trip as completed?
                     </Dialog.Title>
                     <div className="mt-2 w-60 md:w-72 mb-7">
                       <p className="text-sm text-gray-700 text-center sm:text-left break-words">
-                        {driver?.full_name ?? "This driver"} will be marked
-                        retired and dropped from the active roster. Their trip
-                        history is kept, and you can reactivate them at any time.
+                        This trip will be marked completed. This can&apos;t be
+                        undone.
                       </p>
                     </div>
                   </div>
@@ -112,11 +106,11 @@ export default function RetireDriver({
                 <div className="mt-5 sm:mt-4 sm:flex gap-x-3 px-2 justify-center sm:justify-start">
                   <button
                     type="button"
-                    disabled={updateDriver.isLoading}
-                    className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-gray-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-600 disabled:opacity-60 sm:ml-3"
-                    onClick={handleRetire}
+                    disabled={updateTrip.isLoading}
+                    className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 disabled:opacity-60 sm:ml-3"
+                    onClick={handleComplete}
                   >
-                    {updateDriver.isLoading ? "Saving..." : "Retire"}
+                    {updateTrip.isLoading ? "Saving..." : "Complete"}
                   </button>
                   <button
                     type="button"

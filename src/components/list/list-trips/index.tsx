@@ -1,17 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { Fragment, useEffect, useState } from "react";
-import { ITripData } from "./types";
+import React, { Fragment, useEffect } from "react";
+import { TripAvailabilityMap, TripWithRelations } from "./types";
 import TripBody from "./body";
 import { Menu, Transition } from "@headlessui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Icon } from "@iconify/react";
-// import { DatePicker } from "antd";
-import DatePicker from "react-datepicker";
-import { faBarChart, faBars } from "@fortawesome/free-solid-svg-icons";
-import { Calendar, FilterSearch, Refresh } from "iconsax-react";
+import { Calendar, Refresh } from "iconsax-react";
 import "react-datepicker/dist/react-datepicker.css";
 
-import _, { set } from "lodash";
+import _ from "lodash";
 import { CenterLoader } from "../../loaders";
 import EmptyComponent from "../../../assets/svgs/EmptyComponent";
 import Pagination from "./pagination";
@@ -24,41 +19,41 @@ import wrapClick from "../../../utils/wrap-click";
 import { classNames, useUrlState } from "../../../utils";
 import { ChevronDownIcon } from "@heroicons/react/24/outline";
 import { Link } from "react-location";
-const filterItems = [
-  {
-    name: "One-time",
-    href: "#",
-  },
-  {
-    name: "Recurring",
-    href: "#",
-  },
-  {
-    name: "All",
-    href: "#",
-  },
-];
+import { Action } from "../../buttons/action-button";
+import { TripTab } from "../../../services/supabase/trips";
+
+const EMPTY_COPY: Record<TripTab, string> = {
+  upcoming: "No upcoming trips",
+  completed: "No completed trips",
+  cancelled: "No cancelled trips",
+};
 
 type ListTripsProps = {
-  data: ITripData[];
+  data: TripWithRelations[];
+  availability: TripAvailabilityMap;
   showPagination?: boolean;
   showTop?: boolean;
   limit: number;
   skip: number;
   setLimit: any;
-  search?: any;
-  setSearch?: any;
+  tab: TripTab;
+  setTab: (tab: TripTab) => void;
   loading: boolean;
   refetch: any;
   totalAvailable: number;
   setSkip: any;
-  dispatchAction: any;
+  dispatchAction: (
+    id: string,
+    action: Exclude<Action, "expand" | "goto" | "clone">
+  ) => () => void;
+  handleStart: (id: string, label: string) => () => void;
   NoDataComponent?: JSX.Element;
   total: number;
 };
 
 function ListTrips({
   data,
+  availability,
   showPagination,
   showTop,
   limit,
@@ -66,14 +61,14 @@ function ListTrips({
   totalAvailable,
   refetch,
   skip,
-  search,
-  setSearch,
+  tab,
+  setTab,
   loading,
   dispatchAction,
+  handleStart,
   setSkip,
   total,
 }: ListTripsProps) {
-  const currentDate = new Date();
   const views = ["day", "month", "custom"] as const;
   const [currentView, setCurrentView] = useUrlState("view");
 
@@ -106,9 +101,12 @@ function ListTrips({
             <div className="flex lg:justify-between gap-y-3  flex-wrap items-center">
               <div className="flex gap-x-2 md:gap-x-5 mx-2 pl-2 bg-gray-100 px-1 border pr-3 rounded-lg">
                 <button
-                  onClick={() => setSearch("ACTIVE")}
+                  onClick={() => {
+                    setTab("upcoming");
+                    setSkip(0);
+                  }}
                   className={
-                    search === "ACTIVE"
+                    tab === "upcoming"
                       ? `bg-white my-1 px-3 py-1.5 border shadow text-sm text-gray-900 transition-all rounded-lg`
                       : `text-lightgray text-sm`
                   }
@@ -116,9 +114,12 @@ function ListTrips({
                   Upcoming
                 </button>
                 <button
-                  onClick={() => setSearch("COMPLETED")}
+                  onClick={() => {
+                    setTab("completed");
+                    setSkip(0);
+                  }}
                   className={
-                    search === "COMPLETED"
+                    tab === "completed"
                       ? `bg-white my-1 px-3 py-1.5 border shadow text-sm text-gray-900 transition-all rounded-lg`
                       : `text-lightgray text-sm`
                   }
@@ -126,9 +127,12 @@ function ListTrips({
                   Completed
                 </button>
                 <button
-                  onClick={() => setSearch("CANCELLED")}
+                  onClick={() => {
+                    setTab("cancelled");
+                    setSkip(0);
+                  }}
                   className={
-                    search === "CANCELLED"
+                    tab === "cancelled"
                       ? `bg-white my-1 px-3 py-1.5 border shadow text-sm text-gray-900 transition-all rounded-lg`
                       : `text-lightgray text-sm`
                   }
@@ -212,10 +216,12 @@ function ListTrips({
             </div>
           ) : totalAvailable ? (
             <main className={"mt-10"}>
-              {data.map((trip, index) => (
+              {data.map((trip) => (
                 <TripBody
                   dispatchAction={dispatchAction}
-                  key={index}
+                  handleStart={handleStart}
+                  availability={availability}
+                  key={trip.id}
                   data={trip}
                 />
               ))}
@@ -238,7 +244,7 @@ function ListTrips({
                     className="font-light"
                   >
                     <EmptyComponent className="h-56 w-56" />
-                    <span>Oops, no data available</span>
+                    <span>{EMPTY_COPY[tab]}</span>
                   </div>
                 </>
               )}

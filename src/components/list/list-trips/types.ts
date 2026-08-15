@@ -1,14 +1,5 @@
-export interface ITripData {
-  date: {
-    dayInWords: string;
-    dayInNumber: string;
-  };
-  origin: any;
-  destination: any;
-  numberOfBusAssigned: string;
-  timeScheduled: {
-    startTime: string;
-    endTime: string;
-  };
-  tripType: string;
-}
+import { TripAvailability, TripWithRelations } from "../../../services/supabase/types";
+
+export type { TripWithRelations };
+
+export type TripAvailabilityMap = Record<string, TripAvailability | undefined>;

@@ -1,88 +1,23 @@
-import { useEffect, useState } from "react";
-import { gql, useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import Modal from "../../components/layouts/modal";
 import { useSearch, useNavigate } from "react-location";
 import { LocationGenerics } from "../../router/location";
-import { Action } from "../../components/buttons/action-button";
-import { currentConfigVar } from "../../apollo/cache/config";
-import wrapClick from "../../utils/wrap-click";
 import { classNames } from "../../utils";
-import _, { last } from "lodash";
-import fileIcon from "../../assets/images/fileIcon.png";
-import { CheckCircleIcon } from "@heroicons/react/24/solid";
-import toast from "react-hot-toast";
-import Dragger from "antd/es/upload/Dragger";
-import { UploadProps } from "antd";
-
-export const GET_DRIVER = gql`
-  query GetDriver($filter: DriverFilter, $populate: [String]) {
-    getDriver(filter: $filter, populate: $populate) {
-      _id
-      fullName
-      email
-      mobileNumber
-      digitalAddress
-      license
-      profilePicture
-      postalAddress
-      licenseClass
-      status
-      bus {
-        vehicleNumber
-        _id
-      }
-    }
-  }
-`;
+import { useDriver } from "../../services/supabase/use-drivers";
+import { getLicenseExpiryStatus } from "../../services/supabase/drivers";
+import { ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 
 export default function ViewDriver({
   open,
   setOpen,
-  refetch,
 }: {
   open: boolean;
   setOpen: (val: boolean) => void;
-  refetch?: () => void;
 }) {
-  const { pollInterval } = useReactiveVar(currentConfigVar);
   const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const [fileListLicense, setFileListLicense] = useState<any>([]);
 
-  const { data, loading } = useQuery(GET_DRIVER, {
-    variables: {
-      filter: {
-        _id: {
-          eq: searchParams?.id,
-        },
-      },
-      populate: ["busCompany", "bus"],
-    },
-    notifyOnNetworkStatusChange: false,
-  });
-
-  useEffect(() => {
-    if (data) {
-      setFileListLicense([
-        {
-          uid: "-1",
-          name: "License File",
-          status: "done",
-          url: data?.getDriver?.license,
-        },
-      ]);
-    }
-  }, [data]);
-
-  const LicenseProps: UploadProps = {
-    name: "license",
-    multiple: false,
-    listType: "picture",
-    fileList: fileListLicense,
-    onDrop(e) {
-      console.log("Dropped files", e.dataTransfer.files);
-    },
-  };
+  const { data: driver, isLoading } = useDriver(open ? searchParams.id : undefined);
+  const expiryStatus = getLicenseExpiryStatus(driver?.license_expiry);
 
   return (
     <Modal
@@ -97,16 +32,16 @@ export default function ViewDriver({
           }),
         });
       }}
-      loading={loading}
+      loading={isLoading}
       hideActions={false}
       descriptionType="string"
       title="Driver Information"
       description="Details of the driver are shown below"
     >
-      {data?.getDriver?._id ? (
+      {driver?.id ? (
         <>
           <div className="overflow-y-auto flex flex-col gap-y-6 pb-20  flex-1">
-            <div className="grid grid-cols-3 gap-x-10 gap-y-8">
+            <div className="grid  grid-cols-3 gap-x-10 gap-y-8">
               <div className="flex flex-col gap-y-2">
                 <label
                   htmlFor="fullName"
@@ -115,7 +50,7 @@ export default function ViewDriver({
                   Full Name
                 </label>
                 <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getDriver?.fullName || "N/A"}
+                  {driver?.full_name || "N/A"}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -126,7 +61,7 @@ export default function ViewDriver({
                   Email
                 </label>
                 <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getDriver?.email || "N/A"}
+                  {driver?.email || "N/A"}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -134,10 +69,10 @@ export default function ViewDriver({
                   htmlFor="fullName"
                   className="block text-sm font-manrope"
                 >
-                  Digital Address
+                  Phone
                 </label>
                 <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getDriver?.digitalAddress || "N/A"}
+                  {driver?.phone || "N/A"}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -145,10 +80,10 @@ export default function ViewDriver({
                   htmlFor="fullName"
                   className="block text-sm font-manrope"
                 >
-                  Postal Address
+                  Address
                 </label>
                 <p className=" w-72 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getDriver?.postalAddress || "N/A"}
+                  {driver?.address || "N/A"}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -156,30 +91,68 @@ export default function ViewDriver({
                   htmlFor="fullName"
                   className="block text-sm font-manrope"
                 >
-                  Bus
+                  Status
                 </label>
-                <p className=" w-72 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getDriver?.bus?.vehicleNumber || "N/A"}
+                <p className=" w-72 border-gray-300 text-base font-manrope rounded-md  py-2 capitalize">
+                  {driver?.status}
                 </p>
               </div>
             </div>
 
             <div className="h-[1px] w-full bg-gray-300"></div>
 
-            <div className="flex flex-col gap-y-24 w-full">
-              <div className="flex flex-1 flex-col">
+            <div className="grid grid-cols-3 gap-x-10 gap-y-8">
+              <div className="flex flex-col gap-y-2">
                 <label
                   htmlFor="fullName"
                   className="block text-sm font-manrope"
                 >
-                  License
+                  Licence Number
                 </label>
-
-                <Dragger
-                  style={{ border: "none" }}
-                  className="h-0"
-                  {...LicenseProps}
-                ></Dragger>
+                <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
+                  {driver?.license_number || "N/A"}
+                </p>
+              </div>
+              <div className="flex flex-col gap-y-2">
+                <label
+                  htmlFor="fullName"
+                  className="block text-sm font-manrope"
+                >
+                  Licence Class
+                </label>
+                <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
+                  {driver?.license_class || "N/A"}
+                </p>
+              </div>
+              <div className="flex flex-col gap-y-2">
+                <label
+                  htmlFor="fullName"
+                  className="block text-sm font-manrope"
+                >
+                  Licence Expiry
+                </label>
+                <p className="flex w-60 items-center gap-x-1.5 border-gray-300 text-base font-manrope rounded-md  py-2">
+                  {driver?.license_expiry || "N/A"}
+                  {expiryStatus && (
+                    <ExclamationTriangleIcon
+                      className={classNames(
+                        expiryStatus === "expired"
+                          ? "text-red-500"
+                          : "text-amber-500",
+                        "h-4 w-4 flex-shrink-0"
+                      )}
+                      aria-hidden="true"
+                    />
+                  )}
+                </p>
+                {expiryStatus === "expired" && (
+                  <p className="text-xs text-red-500">Licence has expired</p>
+                )}
+                {expiryStatus === "expiring" && (
+                  <p className="text-xs text-amber-500">
+                    Licence expires soon
+                  </p>
+                )}
               </div>
             </div>
           </div>

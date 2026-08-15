@@ -1,5 +1,5 @@
 import Modal from "../../components/layouts/modal";
-import { useNavigate } from "react-location";
+import { useSearch, useNavigate } from "react-location";
 import { LocationGenerics } from "../../router/location";
 import wrapClick from "../../utils/wrap-click";
 
@@ -9,8 +9,7 @@ import { useFormik } from "formik";
 import TextInput from "../../components/core/text-input";
 import SelectInput from "../../components/core/select-input";
 import { Loader } from "../../components/loaders";
-import { useAuth } from "../../context/auth-context";
-import { useCreateDriver } from "../../services/supabase/use-drivers";
+import { useDriver, useUpdateDriver } from "../../services/supabase/use-drivers";
 import { DriverStatus } from "../../services/supabase/types";
 
 const STATUS_OPTIONS = [
@@ -30,27 +29,29 @@ interface FormValues {
   status: DriverStatus;
 }
 
-export default function CreateDriver({
+export default function UpdateDriver({
   open,
   setOpen,
 }: {
   open: boolean;
   setOpen: (val: boolean) => void;
 }) {
+  const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const { profile } = useAuth();
-  const createDriver = useCreateDriver();
+  const { data: driver, isLoading } = useDriver(open ? searchParams.id : undefined);
+  const updateDriver = useUpdateDriver();
 
   const form = useFormik<FormValues>({
+    enableReinitialize: true,
     initialValues: {
-      full_name: "",
-      email: "",
-      phone: "",
-      address: "",
-      license_number: "",
-      license_class: "",
-      license_expiry: "",
-      status: "active",
+      full_name: driver?.full_name ?? "",
+      email: driver?.email ?? "",
+      phone: driver?.phone ?? "",
+      address: driver?.address ?? "",
+      license_number: driver?.license_number ?? "",
+      license_class: driver?.license_class ?? "",
+      license_expiry: driver?.license_expiry ?? "",
+      status: driver?.status ?? "active",
     },
     validationSchema: Yup.object({
       full_name: Yup.string().required("Full name is required"),
@@ -58,25 +59,25 @@ export default function CreateDriver({
       license_expiry: Yup.date().typeError("Enter a valid date"),
     }),
     onSubmit: async (values) => {
-      if (!profile?.company_id) return;
+      if (!driver) return;
 
       try {
-        await createDriver.mutateAsync({
-          company_id: profile.company_id,
+        const payload: Record<string, unknown> = {
           full_name: values.full_name,
-          email: values.email || undefined,
-          phone: values.phone || undefined,
-          address: values.address || undefined,
-          license_number: values.license_number || undefined,
-          license_class: values.license_class || undefined,
-          license_expiry: values.license_expiry || undefined,
+          email: values.email || null,
+          phone: values.phone || null,
+          address: values.address || null,
+          license_number: values.license_number || null,
+          license_class: values.license_class || null,
+          license_expiry: values.license_expiry || null,
           status: values.status,
-        });
+        };
+
+        await updateDriver.mutateAsync({ id: driver.id, payload });
 
         toast(
-          JSON.stringify({ type: "success", title: "Driver Created Successfully" })
+          JSON.stringify({ type: "success", title: "Driver Updated Successfully" })
         );
-        form.resetForm();
         setOpen(false);
       } catch (e: any) {
         if (e?.code === "23505") {
@@ -109,12 +110,13 @@ export default function CreateDriver({
           }),
         });
       }}
+      loading={isLoading}
       hideActions={false}
       hideDefaultAction={true}
       size="5xl"
       descriptionType="string"
-      title="Add Driver"
-      description="Provide the details to add a new driver"
+      title="Edit driver"
+      description="Update the details of this driver"
       renderActions={() => (
         <>
           <button
@@ -122,11 +124,11 @@ export default function CreateDriver({
             onClick={wrapClick(form.handleSubmit)}
             className="inline-flex justify-center px-4 md:px-16 py-2 ml-3  text-sm font-medium text-white bg-primary border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none"
           >
-            {createDriver.isLoading ? (
+            {updateDriver.isLoading ? (
               <Loader />
             ) : (
               <>
-                <span>Add</span>
+                <span>Save</span>
               </>
             )}
           </button>
@@ -139,6 +141,17 @@ export default function CreateDriver({
             }}
           >
             Cancel
+          </button>
+          <button
+            type="button"
+            className="mr-auto text-sm font-medium text-gray-400 hover:text-red-600 focus:outline-none"
+            onClick={() => {
+              navigate({
+                search: (old) => ({ ...old, modal: "delete" }),
+              });
+            }}
+          >
+            Delete driver
           </button>
         </>
       )}

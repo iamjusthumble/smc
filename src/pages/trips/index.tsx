@@ -1,70 +1,37 @@
-import { Add, ArrowDown2, FilterSearch, Refresh } from "iconsax-react";
-import React, { Fragment, useEffect, useState } from "react";
-import _, { last } from "lodash";
-import { classNames, useUrlState } from "../../utils";
-import ActionButton, { Action } from "../../components/buttons/action-button";
-import { gql, useQuery, useReactiveVar } from "@apollo/client";
+import { Add } from "iconsax-react";
+import React, { useMemo, useState } from "react";
+import { useUrlState } from "../../utils";
+import { Action } from "../../components/buttons/action-button";
 import { useNavigate, useSearch } from "react-location";
 import { LocationGenerics } from "../../router/location";
 import ListTrips from "../../components/list/list-trips";
 import SubHeader from "../../components/layouts/sub-header";
 import withPermissions from "../../utils/with-permissions";
-import { currentUserVar } from "../../apollo/cache/auth";
 import UpdateTrip from "./update";
 import CreateTrip from "./create";
+import ViewTrip from "./view";
+import CompleteTrip from "./complete";
+import CancelTrip from "./cancel";
+import DeleteTrip from "./delete";
+import toast from "react-hot-toast";
+import { TripTab } from "../../services/supabase/trips";
+import { TripAvailabilityMap } from "../../components/list/list-trips/types";
+import {
+  useTripAvailabilities,
+  useTrips,
+  useUpdateTrip,
+} from "../../services/supabase/use-trips";
 
-const GET_ALL_TRIPS = gql`
-  query GetAllTrips(
-    $pagination: Pagination!
-    $filter: TripFilter
-    $search: SearchOperator
-    $populate: [String]
-  ) {
-    getAllTrips(
-      pagination: $pagination
-      filter: $filter
-      search: $search
-      populate: $populate
-    ) {
-      count
-      rows {
-        _id
-        origin {
-          name
-        }
-        destination {
-          name
-        }
-        numberOfBusAssigned
-        price
-        tripStatus
-        tripType
-        timeScheduled {
-          startTime
-          endTime
-        }
-        date {
-          year
-          dayInNumber
-          dayInWords
-          month
-        }
-      }
-    }
-  }
-`;
-
-const TalentPage = () => {
-  const [skip, setSkip] = React.useState(0);
-  const [limit, setLimit] = React.useState(8);
-  const [networkStatus, setNetworkStatus] = React.useState(0);
-
-  const [search, setSearch] = React.useState("ACTIVE");
+const TripsPage = () => {
+  const [skip, setSkip] = useState(0);
+  const [limit, setLimit] = useState(8);
+  const [tab, setTab] = useState<TripTab>("upcoming");
   const [modal, setModal] = useUrlState("modal");
   const searchParams = useSearch<LocationGenerics>();
-  const [total, setTotal] = useState(0);
   const navigate = useNavigate<LocationGenerics>();
-  const currentUser = useReactiveVar(currentUserVar);
+
+  const { data: trips, isLoading, refetch } = useTrips(tab);
+  const updateTrip = useUpdateTrip();
 
   const dispatchAction =
     (id: string, action: Exclude<Action, "expand" | "goto" | "clone">) =>
@@ -78,35 +45,34 @@ const TalentPage = () => {
       });
     };
 
-  const { loading, data, refetch } = useQuery(GET_ALL_TRIPS, {
-    variables: {
-      pagination: {
-        skip,
-        limit,
-      },
-      search: {
-        query: search,
-        options: ["i"],
-        fields: ["tripStatus"],
-      },
-      filter: {
-        busCompany: {
-          eq: currentUser?.busCompany._id,
-        },
-      },
-      populate: ["origin", "destination", "busCompany"],
-    },
-  });
-
-  useEffect(() => {
-    refetch();
-  }, []);
-
-  useEffect(() => {
-    if (data) {
-      setTotal(data?.getAllTrips?.count || 0);
+  const handleStart = (id: string, successMessage: string) => async () => {
+    try {
+      await updateTrip.mutateAsync({ id, payload: { status: "in_progress" } });
+      toast(JSON.stringify({ type: "success", title: successMessage }));
+    } catch (e: any) {
+      toast(
+        JSON.stringify({
+          type: "failed",
+          title: e?.message || "Couldn't start this trip. Please try again.",
+        })
+      );
     }
-  }, [data]);
+  };
+
+  const total = trips?.length ?? 0;
+  const visible = useMemo(
+    () => (trips ?? []).slice(skip, skip + limit),
+    [trips, skip, limit]
+  );
+  const visibleIds = useMemo(() => visible.map((t) => t.id), [visible]);
+  const { data: availabilityRows } = useTripAvailabilities(visibleIds);
+  const availability = useMemo(() => {
+    const map: TripAvailabilityMap = {};
+    (availabilityRows ?? []).forEach((row) => {
+      map[row.trip_id] = row;
+    });
+    return map;
+  }, [availabilityRows]);
 
   return (
     <>
@@ -130,18 +96,20 @@ const TalentPage = () => {
 
         <main className="px-2 md:px-0">
           <ListTrips
-            data={data?.getAllTrips?.rows || []}
+            data={visible}
+            availability={availability}
             limit={limit}
-            loading={loading && ![4, 6].includes(networkStatus)}
+            loading={isLoading}
             setLimit={setLimit}
-            search={search}
-            setSearch={setSearch}
+            tab={tab}
+            setTab={setTab}
             setSkip={setSkip}
             skip={skip}
             total={total}
             refetch={refetch}
             dispatchAction={dispatchAction}
-            totalAvailable={data?.getAllTrips?.rows.length || 0}
+            handleStart={handleStart}
+            totalAvailable={total}
             showTop
             showPagination
           />
@@ -149,16 +117,30 @@ const TalentPage = () => {
 
         {!!searchParams.id?.length && (
           <>
+            <ViewTrip
+              open={modal === "view"}
+              setOpen={(val: boolean) => setModal(val ? "view" : undefined)}
+            />
             <UpdateTrip
               open={modal === "update"}
-              refetch={refetch}
               setOpen={(val: boolean) => setModal(val ? "update" : undefined)}
+            />
+            <CompleteTrip
+              open={modal === "complete"}
+              setOpen={(val: boolean) => setModal(val ? "complete" : undefined)}
+            />
+            <CancelTrip
+              open={modal === "cancel"}
+              setOpen={(val: boolean) => setModal(val ? "cancel" : undefined)}
+            />
+            <DeleteTrip
+              open={modal === "delete"}
+              setOpen={(val: boolean) => setModal(val ? "delete" : undefined)}
             />
           </>
         )}
         <CreateTrip
           open={modal === "create"}
-          refetch={refetch}
           setOpen={(val: boolean) => setModal(val ? "create" : undefined)}
         />
       </div>
@@ -166,4 +148,4 @@ const TalentPage = () => {
   );
 };
 
-export default TalentPage;
+export default TripsPage;

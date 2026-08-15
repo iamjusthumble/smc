@@ -9,13 +9,13 @@ import { useNavigate, useSearch } from "react-location";
 import toast from "react-hot-toast";
 import { LocationGenerics } from "../../router/location";
 import {
-  useBookingCountForTrip,
-  useDeleteTrip,
-  useTrip,
-  useUpdateTrip,
-} from "../../services/supabase/use-trips";
+  useDeleteDriver,
+  useDriver,
+  useTripCountForDriver,
+  useUpdateDriver,
+} from "../../services/supabase/use-drivers";
 
-export default function DeleteTrip({
+export default function DeleteDriver({
   open,
   setOpen,
 }: {
@@ -24,12 +24,12 @@ export default function DeleteTrip({
 }) {
   const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const { data: trip } = useTrip(open ? searchParams.id : undefined);
-  const { data: bookingCount, isLoading: countLoading } = useBookingCountForTrip(
+  const { data: driver } = useDriver(open ? searchParams.id : undefined);
+  const { data: tripCount, isLoading: countLoading } = useTripCountForDriver(
     open ? searchParams.id : undefined
   );
-  const deleteTrip = useDeleteTrip();
-  const updateTrip = useUpdateTrip();
+  const deleteDriver = useDeleteDriver();
+  const updateDriver = useUpdateDriver();
 
   const close = () => {
     setOpen(false);
@@ -39,41 +39,51 @@ export default function DeleteTrip({
   };
 
   const handleDelete = async () => {
-    if (!trip) return;
+    if (!driver) return;
     try {
-      await deleteTrip.mutateAsync(trip.id);
-      toast(JSON.stringify({ type: "success", title: "Trip deleted successfully" }));
+      await deleteDriver.mutateAsync(driver.id);
+      toast(
+        JSON.stringify({
+          type: "success",
+          title: `${driver.full_name} deleted successfully`,
+        })
+      );
       close();
     } catch (e: any) {
       toast(
         JSON.stringify({
           type: "failed",
-          title: e?.message || "Couldn't delete this trip. Please try again.",
+          title: e?.message || "Couldn't delete this driver. Please try again.",
         })
       );
     }
   };
 
-  const handleCancelInstead = async () => {
-    if (!trip) return;
+  const handleRetireInstead = async () => {
+    if (!driver) return;
     try {
-      await updateTrip.mutateAsync({
-        id: trip.id,
-        payload: { status: "cancelled" },
+      await updateDriver.mutateAsync({
+        id: driver.id,
+        payload: { status: "retired" },
       });
-      toast(JSON.stringify({ type: "success", title: "Trip cancelled" }));
+      toast(
+        JSON.stringify({
+          type: "success",
+          title: `${driver.full_name} marked as retired`,
+        })
+      );
       close();
     } catch (e: any) {
       toast(
         JSON.stringify({
           type: "failed",
-          title: e?.message || "Couldn't cancel this trip. Please try again.",
+          title: e?.message || "Couldn't retire this driver. Please try again.",
         })
       );
     }
   };
 
-  const blocked = (bookingCount ?? 0) > 0;
+  const blocked = (tripCount ?? 0) > 0;
 
   return (
     <Transition.Root show={open} as={Fragment}>
@@ -115,7 +125,7 @@ export default function DeleteTrip({
 
                 {countLoading ? (
                   <div className="py-8 text-center text-sm text-gray-500">
-                    Checking bookings...
+                    Checking trip history...
                   </div>
                 ) : blocked ? (
                   <div className="sm:flex sm:items-start justify-center">
@@ -130,14 +140,13 @@ export default function DeleteTrip({
                         as="h3"
                         className="mt-3 text-base text-center font-semibold leading-6 text-gray-900 sm:text-left"
                       >
-                        Can&apos;t delete this trip
+                        Can&apos;t delete {driver?.full_name ?? "this driver"}
                       </Dialog.Title>
                       <div className="mt-2 w-60 md:w-72 mb-7">
                         <p className="text-sm text-gray-700 text-center sm:text-left break-words">
-                          This trip has {bookingCount} booking
-                          {bookingCount === 1 ? "" : "s"} and can&apos;t be
-                          deleted. Cancel it instead to keep the booking
-                          records.
+                          This driver is linked to {tripCount} trip
+                          {tripCount === 1 ? "" : "s"} and can&apos;t be deleted.
+                          Retire them instead to keep their records.
                         </p>
                       </div>
                     </div>
@@ -155,11 +164,12 @@ export default function DeleteTrip({
                         as="h3"
                         className="mt-3 text-base text-center font-semibold leading-6 text-gray-900 sm:text-left"
                       >
-                        Delete this trip?
+                        Delete {driver?.full_name ?? "this driver"}?
                       </Dialog.Title>
                       <div className="mt-2 w-60 md:w-72 mb-7">
                         <p className="text-sm text-gray-700 text-center sm:text-left break-words">
-                          This permanently removes this trip. This can&apos;t
+                          This permanently removes{" "}
+                          {driver?.full_name ?? "this driver"}. This can&apos;t
                           be undone.
                         </p>
                       </div>
@@ -172,20 +182,20 @@ export default function DeleteTrip({
                     {blocked ? (
                       <button
                         type="button"
-                        disabled={updateTrip.isLoading}
+                        disabled={updateDriver.isLoading}
                         className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-gray-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-600 disabled:opacity-60 sm:ml-3"
-                        onClick={handleCancelInstead}
+                        onClick={handleRetireInstead}
                       >
-                        {updateTrip.isLoading ? "Saving..." : "Cancel instead"}
+                        {updateDriver.isLoading ? "Saving..." : "Retire instead"}
                       </button>
                     ) : (
                       <button
                         type="button"
-                        disabled={deleteTrip.isLoading}
+                        disabled={deleteDriver.isLoading}
                         className="inline-flex w-28 md:w-32 mr-2 md:mr-0 justify-center rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-60 sm:ml-3"
                         onClick={handleDelete}
                       >
-                        {deleteTrip.isLoading ? "Deleting..." : "Delete"}
+                        {deleteDriver.isLoading ? "Deleting..." : "Delete"}
                       </button>
                     )}
                     <button

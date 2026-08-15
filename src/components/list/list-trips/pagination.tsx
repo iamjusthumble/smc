@@ -27,6 +27,18 @@ const Pagination: FC<Props> = ({
   const [page, setPage] = useState(0);
   const [enteredPage, setEnteredPage] = useState(1);
 
+  // page tracked page numbers only and never actually moved the data
+  // window — sync it out to the real skip/limit state here.
+  useEffect(() => {
+    setSkip(page * limit);
+  }, [page, limit, setSkip]);
+
+  // A caller resetting skip to 0 (e.g. switching tabs) should reset the
+  // page indicator too.
+  useEffect(() => {
+    if (skip === 0) setPage(0);
+  }, [skip]);
+
   const totalPages = Math.ceil(total / limit);
   const maxPageNumbers = 5; // Number of page numbers to show before/after current page
   const pageNumbers = Array.from(
@@ -86,14 +98,14 @@ const Pagination: FC<Props> = ({
       key={pageNumber}
       onClick={() => {
         // addOrUpdateQueryParam("page", pageNumber);
-        setPage(pageNumber);
+        setPage(pageNumber - 1);
       }}
       className={`inline-flex cursor-pointer rounded-md items-center mt-4 py-2 hover:bg-gray-100 hover:rounded-md border-transparent px-4 text-sm font-medium text-gray-500 ${
-        page === pageNumber
+        page === pageNumber - 1
           ? "bg-gray-100"
           : "hover:border-gray-300 hover:text-gray-700"
       }`}
-      aria-current={page === pageNumber ? "page" : undefined}
+      aria-current={page === pageNumber - 1 ? "page" : undefined}
     >
       {pageNumber}
     </div>
@@ -107,10 +119,10 @@ const Pagination: FC<Props> = ({
         <div
           onClick={() => {
             // addOrUpdateQueryParam("page", page - 1);
-            setPage(page - 1);
+            setPage(Math.max(page - 1, 0));
           }}
           className={`flex items-center cursor-pointer flex-row-reverse hover:bg-gray-100 border mx-3 mt-4 rounded-md pr-3 py-1 border-gray-400 ${
-            page === 1
+            page === 0
               ? "opacity-50 cursor-not-allowed pointer-events-none"
               : "hover:border-gray-300 hover:text-gray-700"
           } `}
@@ -131,10 +143,10 @@ const Pagination: FC<Props> = ({
         <div
           onClick={() => {
             // addOrUpdateQueryParam("page", page + 1);
-            setPage(page + 1);
+            setPage(Math.min(page + 1, Math.max(totalPages - 1, 0)));
           }}
           className={`flex items-center cursor-pointer border mr-3 mt-4 rounded-md hover:bg-gray-100 px-2 py-1 border-gray-400 ${
-            page === totalPages
+            page === totalPages - 1
               ? "opacity-50 cursor-not-allowed pointer-events-none"
               : "hover:border-gray-300 hover:text-gray-700"
           }`}

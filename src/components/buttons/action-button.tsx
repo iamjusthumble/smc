@@ -23,6 +23,9 @@ import {
   PlusIcon,
   NoSymbolIcon,
   ArrowPathIcon,
+  ArchiveBoxIcon,
+  PlayIcon,
+  CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 import "react-tooltip/dist/react-tooltip.css";
 import wrapClick from "../../utils/wrap-click";
@@ -48,9 +51,12 @@ const Actions = [
   "clone",
   "decommission",
   "reactivate",
+  "retire",
   "investigate",
   "cancel",
   "disapprove",
+  "start",
+  "complete",
 ] as const;
 export type Action = (typeof Actions)[number];
 const ActionIcons: { [key in Action]: typeof EyeIcon } = {
@@ -70,12 +76,15 @@ const ActionIcons: { [key in Action]: typeof EyeIcon } = {
   view: EyeIcon,
   decommission: NoSymbolIcon,
   reactivate: ArrowPathIcon,
+  retire: ArchiveBoxIcon,
   create: PlusIcon,
   expand: ArrowsPointingOutIcon,
   goto: ArrowTopRightOnSquareIcon,
   clone: DocumentDuplicateIcon,
   investigate: MagnifyingGlassPlusIcon,
   cancel: XCircleIcon,
+  start: PlayIcon,
+  complete: CheckCircleIcon,
 };
 
 interface ActionButtonProps {

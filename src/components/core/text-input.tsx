@@ -9,7 +9,7 @@ interface TextInputProps {
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
-  type?: "number" | "text" | "email" | "date" | "password";
+  type?: "number" | "text" | "email" | "date" | "password" | "datetime-local";
   values: any;
   handleChange: any;
   handleBlur: any;

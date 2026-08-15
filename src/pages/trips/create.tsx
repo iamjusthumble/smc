@@ -1,128 +1,222 @@
-import { useState } from "react";
-import { gql, useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import { useMemo, useRef, useState } from "react";
+import dayjs from "dayjs";
 import Modal from "../../components/layouts/modal";
-import { useSearch, useNavigate } from "react-location";
+import { useNavigate } from "react-location";
 import { LocationGenerics } from "../../router/location";
-import { Action } from "../../components/buttons/action-button";
-import { currentConfigVar } from "../../apollo/cache/config";
 import wrapClick from "../../utils/wrap-click";
-import { classNames } from "../../utils";
-import male from "../../assets/images/male.jpeg";
-import _, { last } from "lodash";
-import fileIcon from "../../assets/images/fileIcon.png";
-import { CheckCircleIcon } from "@heroicons/react/24/solid";
+
 import toast from "react-hot-toast";
 import * as Yup from "yup";
 import { useFormik } from "formik";
 import TextInput from "../../components/core/text-input";
-import { Loader } from "../../components/loaders";
-import { DatePicker, TimePicker } from "antd";
-import dayjs from "dayjs";
-import LocationPicker from "../../containers/location-picker";
 import SelectInput from "../../components/core/select-input";
-import { BusesPicker, BusPicker } from "../../containers/bus-picker";
-import { currentUserVar } from "../../apollo/cache/auth";
-
-export const CREATE_TRIP = gql`
-  mutation CreateTrip($input: CreateTripInput!) {
-    createTrip(input: $input) {
-      _id
-    }
-  }
-`;
+import { Loader } from "../../components/loaders";
+import { useAuth } from "../../context/auth-context";
+import { useCreateTrip, useRoutes } from "../../services/supabase/use-trips";
+import { useBuses } from "../../services/supabase/use-buses";
+import { useDrivers } from "../../services/supabase/use-drivers";
+import { findScheduleConflicts } from "../../services/supabase/trips";
+import { TripWithRelations } from "../../services/supabase/types";
 
 interface FormValues {
-  date: Date;
-  numberOfBusesAssigned: string;
-  origin: any;
-  destination: any;
-  timeScheduled: any;
-  tripType: string;
-  price: string;
-  bus: any;
+  route_id: string;
+  bus_id: string;
+  driver_id: string;
+  departure_time: string;
+  arrival_time: string;
+  fare: string;
+  notes: string;
 }
 
 export default function CreateTrip({
   open,
   setOpen,
-  refetch,
 }: {
   open: boolean;
   setOpen: (val: boolean) => void;
-  refetch?: () => void;
 }) {
-  const { pollInterval } = useReactiveVar(currentConfigVar);
-  const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const currentUser = useReactiveVar(currentUserVar);
+  const { profile } = useAuth();
+  const createTrip = useCreateTrip();
+  const { data: routes } = useRoutes();
+  const { data: buses } = useBuses();
+  const { data: drivers } = useDrivers();
 
-  const [createTrip, { loading }] = useMutation(CREATE_TRIP);
+  const [arrivalTouched, setArrivalTouched] = useState(false);
+  const [driverConflict, setDriverConflict] = useState<TripWithRelations | null>(
+    null
+  );
+  const driverConflictAcknowledgedRef = useRef(false);
 
-  const form = useFormik({
+  const activeBuses = useMemo(
+    () => (buses ?? []).filter((b) => b.status === "active"),
+    [buses]
+  );
+  const activeDrivers = useMemo(
+    () => (drivers ?? []).filter((d) => d.status === "active"),
+    [drivers]
+  );
+
+  const routeOptions = [
+    { label: "Select a route", value: "" },
+    ...(routes ?? []).map((r) => ({
+      label: `${r.origin} → ${r.destination}`,
+      value: r.id,
+    })),
+  ];
+  const busOptions = [
+    { label: "Unassigned", value: "" },
+    ...activeBuses.map((b) => ({ label: b.vehicle_number, value: b.id })),
+  ];
+  const driverOptions = [
+    { label: "Unassigned", value: "" },
+    ...activeDrivers.map((d) => ({ label: d.full_name, value: d.id })),
+  ];
+
+  const form = useFormik<FormValues>({
     initialValues: {
-      date: "" as unknown as Date,
-      bus: "" as any,
-      destination: "",
-      numberOfBusesAssigned: "",
-      origin: "",
-      price: "",
-      timeScheduled: null as any,
-      tripType: "",
+      route_id: "",
+      bus_id: "",
+      driver_id: "",
+      departure_time: "",
+      arrival_time: "",
+      fare: "",
+      notes: "",
     },
-    validationSchema: Yup.object({}),
-    onSubmit: async (values: FormValues) => {
-      createTrip({
-        variables: {
-          input: {
-            date: values.date,
-            origin: values?.origin?.id,
-            destination: values?.destination?.id,
-            numberOfBusAssigned: values.numberOfBusesAssigned,
-            timeScheduled: {
-              startTime: dayjs(values.timeScheduled[0]).format("h:mm A"),
-              endTime: dayjs(values.timeScheduled[1]).format("h:mm A"),
-            },
-            tripStatus: "ACTIVE",
-            tripType: values.tripType,
-            busCompany: currentUser?.busCompany?._id,
-            bus: values?.bus.id,
-            price: values.price,
-            createdBy: currentUser?._id,
-          },
-        },
-      })
-        .then(({ data }) => {
-          if (data?.createTrip?._id) {
-            toast(
-              JSON.stringify({
-                type: "success",
-                title: "Trip Created Successfully",
-              })
-            );
-            refetch?.();
-            setOpen(false);
-          }
-        })
-        .catch((e) => {
-          toast(
-            JSON.stringify({
-              type: "failed",
-              title: e?.message,
-            })
+    validationSchema: Yup.object({
+      route_id: Yup.string().required("Route is required"),
+      departure_time: Yup.string()
+        .required("Departure is required")
+        .test(
+          "future",
+          "Departure must be in the future",
+          (value) => !value || new Date(value) > new Date()
+        ),
+      arrival_time: Yup.string().test(
+        "after-departure",
+        "Arrival must be after departure",
+        function (value) {
+          return (
+            !value ||
+            !this.parent.departure_time ||
+            new Date(value) > new Date(this.parent.departure_time)
           );
+        }
+      ),
+      fare: Yup.number()
+        .typeError("Fare must be a number")
+        .required("Fare is required")
+        .min(0, "Fare must be zero or greater"),
+    }),
+    onSubmit: async (values) => {
+      if (!profile?.company_id) return;
+
+      try {
+        const departureIso = new Date(values.departure_time).toISOString();
+        const arrivalIso = values.arrival_time
+          ? new Date(values.arrival_time).toISOString()
+          : undefined;
+
+        const conflicts = await findScheduleConflicts(
+          values.bus_id || undefined,
+          values.driver_id || undefined,
+          departureIso,
+          arrivalIso ?? departureIso
+        );
+
+        if (conflicts.busConflict) {
+          form.setFieldError(
+            "bus_id",
+            `This bus is already scheduled for another trip departing ${dayjs(
+              conflicts.busConflict.departure_time
+            ).format("MMM D, h:mm A")}`
+          );
+          return;
+        }
+
+        if (conflicts.driverConflict && !driverConflictAcknowledgedRef.current) {
+          setDriverConflict(conflicts.driverConflict);
+          return;
+        }
+
+        await createTrip.mutateAsync({
+          company_id: profile.company_id,
+          route_id: values.route_id,
+          bus_id: values.bus_id || undefined,
+          driver_id: values.driver_id || undefined,
+          departure_time: departureIso,
+          arrival_time: arrivalIso,
+          fare: parseFloat(values.fare),
+          status: "scheduled",
+          notes: values.notes || undefined,
         });
+
+        toast(
+          JSON.stringify({ type: "success", title: "Trip Created Successfully" })
+        );
+        form.resetForm();
+        setArrivalTouched(false);
+        setDriverConflict(null);
+        driverConflictAcknowledgedRef.current = false;
+        setOpen(false);
+      } catch (e: any) {
+        toast(
+          JSON.stringify({
+            type: "failed",
+            title: e?.message || "Something went wrong",
+          })
+        );
+      }
     },
   });
 
-  const dispatchAction =
-    (action: Exclude<Action, "expand" | "goto" | "clone">) => () => {
-      navigate({
-        search: (old) => ({
-          ...old,
-          modal: action,
-        }),
-      });
-    };
+  const deriveArrival = (departure: string, routeId: string) => {
+    const route = routes?.find((r) => r.id === routeId);
+    if (route?.duration_minutes && departure) {
+      return dayjs(departure)
+        .add(route.duration_minutes, "minute")
+        .format("YYYY-MM-DDTHH:mm");
+    }
+    return null;
+  };
+
+  const handleRouteChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    form.handleChange(e);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+    setArrivalTouched(false);
+    const derived = deriveArrival(form.values.departure_time, e.target.value);
+    if (derived) form.setFieldValue("arrival_time", derived);
+  };
+
+  const handleDepartureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    form.handleChange(e);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+    if (!arrivalTouched) {
+      const derived = deriveArrival(e.target.value, form.values.route_id);
+      if (derived) form.setFieldValue("arrival_time", derived);
+    }
+  };
+
+  const handleArrivalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    form.handleChange(e);
+    setArrivalTouched(true);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+  };
+
+  const handleAssignmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    form.handleChange(e);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+  };
+
+  const handleAcknowledgeConflict = () => {
+    driverConflictAcknowledgedRef.current = true;
+    setDriverConflict(null);
+    form.handleSubmit();
+  };
 
   return (
     <Modal
@@ -139,10 +233,10 @@ export default function CreateTrip({
       }}
       hideActions={false}
       hideDefaultAction={true}
-      size="2xl"
+      size="5xl"
       descriptionType="string"
       title="Add new trip"
-      description="Provide the details to add a new trip"
+      description="Provide the details to schedule a new trip"
       renderActions={() => (
         <>
           <button
@@ -150,7 +244,7 @@ export default function CreateTrip({
             onClick={wrapClick(form.handleSubmit)}
             className="inline-flex justify-center px-4 md:px-16 py-2 ml-3  text-sm font-medium text-white bg-primary border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none"
           >
-            {loading ? (
+            {createTrip.isLoading ? (
               <Loader />
             ) : (
               <>
@@ -163,6 +257,9 @@ export default function CreateTrip({
             className="inline-flex justify-center px-4 md:px-16 py-2 text-sm font-medium text-primary bg-white border border-primary rounded-md hover:bg-gray-50 focus:outline-none"
             onClick={() => {
               form.resetForm();
+              setArrivalTouched(false);
+              setDriverConflict(null);
+              driverConflictAcknowledgedRef.current = false;
               setOpen(false);
             }}
           >
@@ -179,107 +276,89 @@ export default function CreateTrip({
           <div>
             <div className="grid grid-cols-2 gap-6 mt-2">
               <div className="">
-                <div className="flex flex-col gap-y-2">
-                  <label
-                    htmlFor="fullName"
-                    className="block text-sm font-manrope"
-                  >
-                    Trip Date
-                  </label>
-                  <DatePicker
-                    className="border w-72 border-gray-300 text-base font-manrope rounded-md pl-4 py-2"
-                    size="middle"
-                    disabledDate={(current) => {
-                      return current && current < dayjs().startOf("day");
-                    }}
-                    onChange={(_date, dateString) => {
-                      form.setFieldValue("date", _date);
-                    }}
-                    value={form.values.date}
-                    placeholder="select date for this trip"
-                  />
-                </div>
-              </div>
-              <div className="">
-                <TextInput
-                  id="numberOfBusesAssigned"
-                  label="Number Of Bus(es) assigned"
-                  type="text"
-                  placeholder="e.g. 5"
-                  {...form}
-                />
-              </div>
-              <div className="">
-                <LocationPicker
-                  id="origin"
-                  label="Origin"
-                  placeholder="e.g. RUKOMOVO"
-                  {...form}
-                />
-              </div>
-              <div className="">
-                <div className="">
-                  <LocationPicker
-                    id="destination"
-                    label="Destination"
-                    placeholder="e.g. LOMOTIV"
-                    {...form}
-                  />
-                </div>
-              </div>
-              <div className="">
-                <div className="flex flex-col gap-y-2">
-                  <label
-                    htmlFor="fullName"
-                    className="block text-sm font-manrope"
-                  >
-                    Time Scheduled
-                  </label>
-                  <TimePicker.RangePicker
-                    className="border w-72 text-base font-manrope border-gray-300 rounded-md pl-4 py-2"
-                    onChange={(_time, timeString) => {
-                      console.log(timeString);
-                      console.log(_time);
-                      form.setFieldValue("timeScheduled", _time);
-                    }}
-                    value={form.values.timeScheduled}
-                    placeholder={["Trip Start", "End Time"]}
-                  />
-                </div>
-              </div>
-              <div>
                 <SelectInput
-                  id="tripType"
-                  label="Trip Type"
-                  placeholder="Trip Type"
-                  required={true}
-                  options={[
-                    { label: "--Select trip type", value: "" },
-                    { label: "One-Time", value: "One-Time" },
-                    { label: "Recurring", value: "Recurring" },
-                  ]}
+                  id="route_id"
+                  label="Route"
+                  options={routeOptions}
+                  required
                   {...form}
-                  values={form.values}
+                  handleChange={handleRouteChange}
                 />
               </div>
               <div className="">
                 <TextInput
-                  id="price"
-                  label="Price"
+                  id="fare"
+                  label="Fare"
                   type="number"
-                  placeholder="e.g. 20"
+                  min={0}
+                  placeholder="e.g. 80"
                   {...form}
                 />
               </div>
               <div className="">
-                <BusPicker
-                  id="bus"
-                  label="Bus Assigned"
-                  placeholder="select bus assigned"
+                <SelectInput
+                  id="bus_id"
+                  label="Bus"
+                  options={busOptions}
+                  {...form}
+                  handleChange={handleAssignmentChange}
+                />
+              </div>
+              <div className="">
+                <SelectInput
+                  id="driver_id"
+                  label="Driver"
+                  options={driverOptions}
+                  {...form}
+                  handleChange={handleAssignmentChange}
+                />
+              </div>
+              <div className="">
+                <TextInput
+                  id="departure_time"
+                  label="Departure"
+                  type="datetime-local"
+                  required
+                  {...form}
+                  handleChange={handleDepartureChange}
+                />
+              </div>
+              <div className="">
+                <TextInput
+                  id="arrival_time"
+                  label="Arrival"
+                  type="datetime-local"
+                  {...form}
+                  handleChange={handleArrivalChange}
+                />
+              </div>
+              <div className="col-span-2">
+                <TextInput
+                  id="notes"
+                  label="Notes"
+                  type="text"
+                  placeholder="Optional notes about this trip"
                   {...form}
                 />
               </div>
             </div>
+
+            {driverConflict && (
+              <div className="mt-4 rounded-md bg-amber-50 border border-amber-200 p-4">
+                <p className="text-sm text-amber-800">
+                  This driver is already assigned to another trip departing{" "}
+                  {dayjs(driverConflict.departure_time).format("MMM D, h:mm A")}.
+                  You can schedule this trip anyway.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAcknowledgeConflict}
+                  className="mt-2 text-sm font-medium text-amber-900 underline"
+                >
+                  Schedule anyway
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </form>

@@ -1,62 +1,219 @@
-import { useState } from "react";
-import { gql, useMutation, useQuery, useReactiveVar } from "@apollo/client";
+import { useMemo, useRef, useState } from "react";
+import dayjs from "dayjs";
 import Modal from "../../components/layouts/modal";
 import { useSearch, useNavigate } from "react-location";
 import { LocationGenerics } from "../../router/location";
-import { Action } from "../../components/buttons/action-button";
-import { currentConfigVar } from "../../apollo/cache/config";
 import wrapClick from "../../utils/wrap-click";
-import { classNames } from "../../utils";
-import male from "../../assets/images/male.jpeg";
-import _, { last } from "lodash";
-import fileIcon from "../../assets/images/fileIcon.png";
-import { CheckCircleIcon } from "@heroicons/react/24/solid";
-import toast from "react-hot-toast";
 
-export const GET_TALENT = gql`
-  query User($userId: ID!) {
-    user(id: $userId) {
-      _id
-      profilePicture
-      phoneNumber
-      resume
-      fullName
-      portfolio
-      email
-      address
-    }
-  }
-`;
+import toast from "react-hot-toast";
+import * as Yup from "yup";
+import { useFormik } from "formik";
+import TextInput from "../../components/core/text-input";
+import SelectInput from "../../components/core/select-input";
+import { Loader } from "../../components/loaders";
+import { useRoutes, useTrip, useUpdateTrip } from "../../services/supabase/use-trips";
+import { useBuses } from "../../services/supabase/use-buses";
+import { useDrivers } from "../../services/supabase/use-drivers";
+import { findScheduleConflicts } from "../../services/supabase/trips";
+import { TripWithRelations } from "../../services/supabase/types";
+
+interface FormValues {
+  route_id: string;
+  bus_id: string;
+  driver_id: string;
+  departure_time: string;
+  arrival_time: string;
+  fare: string;
+  notes: string;
+}
+
+const toLocalInput = (iso?: string) =>
+  iso ? dayjs(iso).format("YYYY-MM-DDTHH:mm") : "";
 
 export default function UpdateTrip({
   open,
   setOpen,
-  refetch,
 }: {
   open: boolean;
   setOpen: (val: boolean) => void;
-  refetch?: () => void;
 }) {
-  const { pollInterval } = useReactiveVar(currentConfigVar);
   const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
+  const { data: trip, isLoading } = useTrip(open ? searchParams.id : undefined);
+  const updateTrip = useUpdateTrip();
+  const { data: routes } = useRoutes();
+  const { data: buses } = useBuses();
+  const { data: drivers } = useDrivers();
 
-  const { data, loading } = useQuery(GET_TALENT, {
-    variables: {
-      userId: searchParams.id,
+  const [arrivalTouched, setArrivalTouched] = useState(false);
+  const [driverConflict, setDriverConflict] = useState<TripWithRelations | null>(
+    null
+  );
+  const driverConflictAcknowledgedRef = useRef(false);
+
+  const activeBuses = useMemo(
+    () => (buses ?? []).filter((b) => b.status === "active"),
+    [buses]
+  );
+  const activeDrivers = useMemo(
+    () => (drivers ?? []).filter((d) => d.status === "active"),
+    [drivers]
+  );
+
+  const routeOptions = [
+    { label: "Select a route", value: "" },
+    ...(routes ?? []).map((r) => ({
+      label: `${r.origin} → ${r.destination}`,
+      value: r.id,
+    })),
+  ];
+  const busOptions = [
+    { label: "Unassigned", value: "" },
+    ...activeBuses.map((b) => ({ label: b.vehicle_number, value: b.id })),
+  ];
+  const driverOptions = [
+    { label: "Unassigned", value: "" },
+    ...activeDrivers.map((d) => ({ label: d.full_name, value: d.id })),
+  ];
+
+  const form = useFormik<FormValues>({
+    enableReinitialize: true,
+    initialValues: {
+      route_id: trip?.route_id ?? "",
+      bus_id: trip?.bus_id ?? "",
+      driver_id: trip?.driver_id ?? "",
+      departure_time: toLocalInput(trip?.departure_time),
+      arrival_time: toLocalInput(trip?.arrival_time),
+      fare: trip?.fare !== undefined ? String(trip.fare) : "",
+      notes: trip?.notes ?? "",
     },
-    notifyOnNetworkStatusChange: false,
+    validationSchema: Yup.object({
+      route_id: Yup.string().required("Route is required"),
+      departure_time: Yup.string().required("Departure is required"),
+      arrival_time: Yup.string().test(
+        "after-departure",
+        "Arrival must be after departure",
+        function (value) {
+          return (
+            !value ||
+            !this.parent.departure_time ||
+            new Date(value) > new Date(this.parent.departure_time)
+          );
+        }
+      ),
+      fare: Yup.number()
+        .typeError("Fare must be a number")
+        .required("Fare is required")
+        .min(0, "Fare must be zero or greater"),
+    }),
+    onSubmit: async (values) => {
+      if (!trip) return;
+
+      try {
+        const departureIso = new Date(values.departure_time).toISOString();
+        const arrivalIso = values.arrival_time
+          ? new Date(values.arrival_time).toISOString()
+          : undefined;
+
+        const conflicts = await findScheduleConflicts(
+          values.bus_id || undefined,
+          values.driver_id || undefined,
+          departureIso,
+          arrivalIso ?? departureIso,
+          trip.id
+        );
+
+        if (conflicts.busConflict) {
+          form.setFieldError(
+            "bus_id",
+            `This bus is already scheduled for another trip departing ${dayjs(
+              conflicts.busConflict.departure_time
+            ).format("MMM D, h:mm A")}`
+          );
+          return;
+        }
+
+        if (conflicts.driverConflict && !driverConflictAcknowledgedRef.current) {
+          setDriverConflict(conflicts.driverConflict);
+          return;
+        }
+
+        const payload: Record<string, unknown> = {
+          route_id: values.route_id,
+          bus_id: values.bus_id || undefined,
+          driver_id: values.driver_id || undefined,
+          departure_time: departureIso,
+          arrival_time: arrivalIso,
+          fare: parseFloat(values.fare),
+          notes: values.notes || undefined,
+        };
+
+        await updateTrip.mutateAsync({ id: trip.id, payload });
+
+        toast(
+          JSON.stringify({ type: "success", title: "Trip Updated Successfully" })
+        );
+        setDriverConflict(null);
+        driverConflictAcknowledgedRef.current = false;
+        setOpen(false);
+      } catch (e: any) {
+        toast(
+          JSON.stringify({
+            type: "failed",
+            title: e?.message || "Something went wrong",
+          })
+        );
+      }
+    },
   });
 
-  const dispatchAction =
-    (action: Exclude<Action, "expand" | "goto" | "clone">) => () => {
-      navigate({
-        search: (old) => ({
-          ...old,
-          modal: action,
-        }),
-      });
-    };
+  const deriveArrival = (departure: string, routeId: string) => {
+    const route = routes?.find((r) => r.id === routeId);
+    if (route?.duration_minutes && departure) {
+      return dayjs(departure)
+        .add(route.duration_minutes, "minute")
+        .format("YYYY-MM-DDTHH:mm");
+    }
+    return null;
+  };
+
+  const handleRouteChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    form.handleChange(e);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+    setArrivalTouched(false);
+    const derived = deriveArrival(form.values.departure_time, e.target.value);
+    if (derived) form.setFieldValue("arrival_time", derived);
+  };
+
+  const handleDepartureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    form.handleChange(e);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+    if (!arrivalTouched) {
+      const derived = deriveArrival(e.target.value, form.values.route_id);
+      if (derived) form.setFieldValue("arrival_time", derived);
+    }
+  };
+
+  const handleArrivalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    form.handleChange(e);
+    setArrivalTouched(true);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+  };
+
+  const handleAssignmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    form.handleChange(e);
+    setDriverConflict(null);
+    driverConflictAcknowledgedRef.current = false;
+  };
+
+  const handleAcknowledgeConflict = () => {
+    driverConflictAcknowledgedRef.current = true;
+    setDriverConflict(null);
+    form.handleSubmit();
+  };
 
   return (
     <Modal
@@ -71,105 +228,146 @@ export default function UpdateTrip({
           }),
         });
       }}
-      loading={loading}
+      loading={isLoading}
       hideActions={false}
-      title="Talent Details"
-      description="Details of the talent is shown below"
-    >
-      {data?.user?._id ? (
+      hideDefaultAction={true}
+      size="5xl"
+      descriptionType="string"
+      title="Edit trip"
+      description="Update the details of this trip"
+      renderActions={() => (
         <>
-          <div className="flex-1 w-full max-h-[65vh] overflow-y-auto  sm:p-6">
-            <div className="">
-              <img
-                src={
-                  data?.user?.profilePicture.length > 1
-                    ? data?.user?.profilePicture
-                    : male || male
-                }
-                className="w-12 h-12 rounded-full"
-                alt="company-logo"
-              />
-              <div className="grid  grid-cols-3 gap-x-10 mt-5  gap-y-7">
-                <p className="font-manrope flex flex-col font-500 text-sm">
-                  <span className="italic font-normal">Name</span>
-                  <span>{data?.user?.fullName || "N/A"}</span>
-                </p>
-                <p className="font-manrope flex flex-col font-500 text-sm">
-                  <span className="italic font-normal">Email</span>
-                  <span>{data?.user?.email || "N/A"}</span>
-                </p>
-                <p className="font-manrope flex flex-col font-500 text-sm">
-                  <span className="italic font-normal">Phone</span>
-                  <span>{data?.user?.phoneNumber || "N/A"}</span>
-                </p>
-
-                <p className="font-manrope flex flex-col font-500 text-sm">
-                  <span className="italic font-normal">City/ Region</span>
-                  {data?.user?.address}
-                </p>
-                <p className="font-manrope flex flex-col font-500 text-sm">
-                  <span className="italic font-normal">portfolio</span>
-                  <span>{data?.user?.portfolio || "N/A"}</span>
-                </p>
+          <button
+            type="button"
+            onClick={wrapClick(form.handleSubmit)}
+            className="inline-flex justify-center px-4 md:px-16 py-2 ml-3  text-sm font-medium text-white bg-primary border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none"
+          >
+            {updateTrip.isLoading ? (
+              <Loader />
+            ) : (
+              <>
+                <span>Save</span>
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            className="inline-flex justify-center px-4 md:px-16 py-2 text-sm font-medium text-primary bg-white border border-primary rounded-md hover:bg-gray-50 focus:outline-none"
+            onClick={() => {
+              form.resetForm();
+              setOpen(false);
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="mr-auto text-sm font-medium text-gray-400 hover:text-red-600 focus:outline-none"
+            onClick={() => {
+              navigate({
+                search: (old) => ({ ...old, modal: "delete" }),
+              });
+            }}
+          >
+            Delete trip
+          </button>
+        </>
+      )}
+    >
+      <form
+        onSubmit={form.handleSubmit}
+        className="flex-1 flex flex-col overflow-y-scroll"
+      >
+        <div className="space-y-6 divide-y divide-gray-200  flex-1">
+          <div>
+            <div className="grid grid-cols-2 gap-6 mt-2">
+              <div className="">
+                <SelectInput
+                  id="route_id"
+                  label="Route"
+                  options={routeOptions}
+                  required
+                  {...form}
+                  handleChange={handleRouteChange}
+                />
+              </div>
+              <div className="">
+                <TextInput
+                  id="fare"
+                  label="Fare"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 80"
+                  {...form}
+                />
+              </div>
+              <div className="">
+                <SelectInput
+                  id="bus_id"
+                  label="Bus"
+                  options={busOptions}
+                  {...form}
+                  handleChange={handleAssignmentChange}
+                />
+              </div>
+              <div className="">
+                <SelectInput
+                  id="driver_id"
+                  label="Driver"
+                  options={driverOptions}
+                  {...form}
+                  handleChange={handleAssignmentChange}
+                />
+              </div>
+              <div className="">
+                <TextInput
+                  id="departure_time"
+                  label="Departure"
+                  type="datetime-local"
+                  required
+                  {...form}
+                  handleChange={handleDepartureChange}
+                />
+              </div>
+              <div className="">
+                <TextInput
+                  id="arrival_time"
+                  label="Arrival"
+                  type="datetime-local"
+                  {...form}
+                  handleChange={handleArrivalChange}
+                />
+              </div>
+              <div className="col-span-2">
+                <TextInput
+                  id="notes"
+                  label="Notes"
+                  type="text"
+                  placeholder="Optional notes about this trip"
+                  {...form}
+                />
               </div>
             </div>
-            <div className="mt-10">
-              <p className="font-manrope flex flex-col font-500 text-sm">
-                <span className="italic font-normal">CV/ Resume</span>
-                {data?.user?.resume ? (
-                  <a
-                    href={data?.user?.resume || "#"}
-                    className="border mt-5 flex justify-between items-center cursor-pointer  border-primary p-4 rounded-md"
-                  >
-                    <div className="flex items-center gap-x-4">
-                      <img
-                        src={fileIcon}
-                        alt="doc-icon"
-                        className="w-7 h-7 object-cover"
-                      />
-                      <a target="_blank" href={data?.user?.resume || "#"} rel="noreferrer">
-                        {data?.user?.fullName || "N/A"} resume
-                      </a>
-                    </div>
-                    <div>
-                      <CheckCircleIcon className="w-5 h-5 text-primary" />
-                    </div>
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    className="relative block w-full mt-5 rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                  >
-                    <svg
-                      className="mx-auto h-12 w-12 text-gray-400"
-                      stroke="currentColor"
-                      fill="none"
-                      viewBox="0 0 48 48"
-                      aria-hidden="true"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 14v20c0 4.418 7.163 8 16 8 1.381 0 2.721-.087 4-.252M8 14c0 4.418 7.163 8 16 8s16-3.582 16-8M8 14c0-4.418 7.163-8 16-8s16 3.582 16 8m0 0v14m0-4c0 4.418-7.163 8-16 8S8 28.418 8 24m32 10v6m0 0v6m0-6h6m-6 0h-6"
-                      />
-                    </svg>
-                    <span className="mt-2 block text-sm font-semibold text-gray-900">
-                      No Resume Available for this Talent
-                    </span>
-                  </button>
-                )}
-              </p>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="flex-1 w-full max-h-[65vh] overflow-y-auto  sm:p-6">
-          <div>
-            <h1>NO DATA</h1>
+
+            {driverConflict && (
+              <div className="mt-4 rounded-md bg-amber-50 border border-amber-200 p-4">
+                <p className="text-sm text-amber-800">
+                  This driver is already assigned to another trip departing{" "}
+                  {dayjs(driverConflict.departure_time).format("MMM D, h:mm A")}.
+                  You can schedule this trip anyway.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAcknowledgeConflict}
+                  className="mt-2 text-sm font-medium text-amber-900 underline"
+                >
+                  Save anyway
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </form>
     </Modal>
   );
 }

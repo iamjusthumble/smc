@@ -113,3 +113,24 @@ export interface BookingSeat {
   trip_id: string;
   seat_number: string;
 }
+
+// Derived from the `trip_availability` view — seat counts computed
+// server-side from the assigned bus and confirmed bookings.
+export interface TripAvailability {
+  trip_id: string;
+  company_id: string;
+  departure_time: string;
+  status: TripStatus;
+  total_seats?: number;
+  seats_taken: number;
+  seats_available?: number;
+}
+
+// Trip plus its embedded relations, all nullable since bus/driver/route
+// are optional FKs — used anywhere a trip needs to render with
+// "Unassigned" fallbacks instead of crashing on a missing relation.
+export interface TripWithRelations extends Trip {
+  route: Pick<Route, "id" | "origin" | "destination" | "duration_minutes"> | null;
+  bus: Pick<Bus, "id" | "vehicle_number" | "seat_count"> | null;
+  driver: Pick<Driver, "id" | "full_name"> | null;
+}
