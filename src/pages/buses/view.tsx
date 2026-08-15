@@ -1,102 +1,47 @@
-import { useEffect, useState } from "react";
-import { gql, useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import Modal from "../../components/layouts/modal";
 import { useSearch, useNavigate } from "react-location";
 import { LocationGenerics } from "../../router/location";
-import { Action } from "../../components/buttons/action-button";
-import { currentConfigVar } from "../../apollo/cache/config";
-import wrapClick from "../../utils/wrap-click";
-import { classNames } from "../../utils";
-import _, { last } from "lodash";
-import fileIcon from "../../assets/images/fileIcon.png";
-import { CheckCircleIcon } from "@heroicons/react/24/solid";
-import toast from "react-hot-toast";
-import Dragger from "antd/es/upload/Dragger";
-import { UploadProps } from "antd";
+import { message } from "antd";
+import { useBus } from "../../services/supabase/use-buses";
+import { getDocumentUrl } from "../../services/supabase/buses";
 
-export const GET_BUS = gql`
-  query GetBus($populate: [String], $filter: BusFilter) {
-    getBus(populate: $populate, filter: $filter) {
-      _id
-      colour
-      insurance
-      model
-      numberOfSeats
-      roadWorthy
-      vehicleNumber
-      yearOfMake
-      status
-    }
+const DocumentLink = ({ path, label }: { path?: string; label: string }) => {
+  if (!path) {
+    return (
+      <p className=" w-60 border-gray-300 text-base font-manrope rounded-md py-2 text-gray-500">
+        Not uploaded
+      </p>
+    );
   }
-`;
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          const url = await getDocumentUrl(path);
+          window.open(url, "_blank", "noreferrer");
+        } catch {
+          message.error("Couldn't open document. Please try again.");
+        }
+      }}
+      className=" w-60 text-left text-base font-manrope rounded-md py-2 text-primary hover:text-primary-600"
+    >
+      View {label}
+    </button>
+  );
+};
 
 export default function ViewRequest({
   open,
   setOpen,
-  refetch,
 }: {
   open: boolean;
   setOpen: (val: boolean) => void;
-  refetch?: () => void;
 }) {
-  const { pollInterval } = useReactiveVar(currentConfigVar);
   const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const [fileListInsurance, setFileListInsurance] = useState<any>([]);
-  const [fileListRoadWorthy, setFileListRoadWorthy] = useState<any>([]);
 
-  const { data, loading } = useQuery(GET_BUS, {
-    variables: {
-      populate: ["busCompany"],
-      filter: {
-        _id: {
-          eq: searchParams.id,
-        },
-      },
-    },
-    notifyOnNetworkStatusChange: false,
-  });
-
-  useEffect(() => {
-    if (data) {
-      setFileListInsurance([
-        {
-          uid: "-1",
-          name: "Insurance File",
-          status: "done",
-          url: data?.getBus?.insurance,
-        },
-      ]);
-      setFileListRoadWorthy([
-        {
-          uid: "-2",
-          name: "Roadworthy File",
-          status: "done",
-          url: data?.getBus?.roadWorthy,
-        },
-      ]);
-    }
-  }, [data]);
-
-  const InsuranceProps: UploadProps = {
-    name: "insurance",
-    multiple: false,
-    listType: "picture",
-    fileList: fileListInsurance,
-    onDrop(e) {
-      console.log("Dropped files", e.dataTransfer.files);
-    },
-  };
-
-  const roadWorthyProps: UploadProps = {
-    name: "roadWorthy",
-    multiple: false,
-    fileList: fileListRoadWorthy,
-    listType: "picture",
-    onDrop(e) {
-      console.log("Dropped files", e.dataTransfer.files);
-    },
-  };
+  const { data: bus, isLoading } = useBus(open ? searchParams.id : undefined);
 
   return (
     <Modal
@@ -111,13 +56,13 @@ export default function ViewRequest({
           }),
         });
       }}
-      loading={loading}
+      loading={isLoading}
       hideActions={false}
       descriptionType="string"
       title="Bus Information"
       description="Details of the bus are shown below"
     >
-      {data?.getBus?._id ? (
+      {bus?.id ? (
         <>
           <div className="overflow-y-auto flex flex-col gap-y-6 pb-20  flex-1">
             <div className="grid grid-cols-3 gap-x-10 gap-y-8">
@@ -129,7 +74,7 @@ export default function ViewRequest({
                   Vehicle Number
                 </label>
                 <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getBus?.vehicleNumber}
+                  {bus?.vehicle_number}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -140,7 +85,7 @@ export default function ViewRequest({
                   Year of Make
                 </label>
                 <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getBus?.yearOfMake}
+                  {bus?.make_year ?? "N/A"}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -151,7 +96,7 @@ export default function ViewRequest({
                   Number of Seats
                 </label>
                 <p className=" w-60 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getBus?.numberOfSeats}
+                  {bus?.seat_count}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -162,7 +107,7 @@ export default function ViewRequest({
                   Model
                 </label>
                 <p className=" w-72 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getBus?.model}
+                  {bus?.model ?? "N/A"}
                 </p>
               </div>
               <div className="flex flex-col gap-y-2">
@@ -173,41 +118,42 @@ export default function ViewRequest({
                   Colour
                 </label>
                 <p className=" w-72 border-gray-300 text-base font-manrope rounded-md  py-2">
-                  {data?.getBus?.colour}
+                  {bus?.color ?? "N/A"}
+                </p>
+              </div>
+              <div className="flex flex-col gap-y-2">
+                <label
+                  htmlFor="fullName"
+                  className="block text-sm font-manrope"
+                >
+                  Status
+                </label>
+                <p className=" w-72 border-gray-300 text-base font-manrope rounded-md  py-2 capitalize">
+                  {bus?.status}
                 </p>
               </div>
             </div>
 
             <div className="h-[1px] w-full bg-gray-300"></div>
 
-            <div className="flex flex-col gap-y-24 w-full">
-              <div className="flex flex-1 flex-col">
+            <div className="flex flex-col gap-y-8 w-full">
+              <div className="flex flex-1 flex-col gap-y-2">
                 <label
                   htmlFor="fullName"
                   className="block text-sm font-manrope"
                 >
                   Vehicle Insurance Document
                 </label>
-
-                <Dragger
-                  style={{ border: "none" }}
-                  className="h-0"
-                  {...InsuranceProps}
-                ></Dragger>
+                <DocumentLink path={bus?.insurance_doc_path} label="insurance document" />
               </div>
-              <div className="flex flex-1 flex-col">
+              <div className="flex flex-1 flex-col gap-y-2">
                 <label
                   htmlFor="fullName"
                   className="block text-sm font-manrope"
                 >
                   Road Worthy Document
                 </label>
-
-                <Dragger
-                  style={{ border: "none" }}
-                  className="h-0 border-none"
-                  {...roadWorthyProps}
-                ></Dragger>
+                <DocumentLink path={bus?.roadworthy_doc_path} label="roadworthy document" />
               </div>
             </div>
           </div>

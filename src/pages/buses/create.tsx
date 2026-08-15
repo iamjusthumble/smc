@@ -1,220 +1,220 @@
 import { useState } from "react";
-import { gql, useMutation, useQuery, useReactiveVar } from "@apollo/client";
 import Modal from "../../components/layouts/modal";
-import { useSearch, useNavigate } from "react-location";
+import { useNavigate } from "react-location";
 import { LocationGenerics } from "../../router/location";
-import { Action } from "../../components/buttons/action-button";
-import { currentConfigVar } from "../../apollo/cache/config";
 import wrapClick from "../../utils/wrap-click";
-import { classNames } from "../../utils";
-import male from "../../assets/images/male.jpeg";
-import _, { last } from "lodash";
-import fileIcon from "../../assets/images/fileIcon.png";
-import { CheckCircleIcon } from "@heroicons/react/24/solid";
 import { message, Upload, UploadProps } from "antd";
 const { Dragger } = Upload;
-import { useMutation as useMutationTanStack } from "@tanstack/react-query";
 
 import toast from "react-hot-toast";
 import * as Yup from "yup";
 import { useFormik } from "formik";
 import TextInput from "../../components/core/text-input";
+import SelectInput from "../../components/core/select-input";
 import { FiUploadCloud } from "react-icons/fi";
-import { FileServer } from "../../services";
 import { Loader } from "../../components/loaders";
-import { currentUserVar } from "../../apollo/cache/auth";
+import { useAuth } from "../../context/auth-context";
+import { useCreateBus, useUpdateBus } from "../../services/supabase/use-buses";
+import { uploadBusDocument } from "../../services/supabase/buses";
+import { BusStatus } from "../../services/supabase/types";
 
-export const CREATE_BUS = gql`
-  mutation CreateBus($input: CreateBusInput!) {
-    createBus(input: $input) {
-      _id
-    }
+const STATUS_OPTIONS = [
+  { label: "Active", value: "active" },
+  { label: "Maintenance", value: "maintenance" },
+  { label: "Decommissioned", value: "decommissioned" },
+];
+
+const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+const MAX_DOCUMENT_SIZE = 5 * 1024 * 1024; // 5 MB
+
+const validateDocumentFile = (file: File): boolean => {
+  if (!ALLOWED_DOCUMENT_TYPES.includes(file.type)) {
+    message.error("Only PDF, JPG or PNG files are allowed.");
+    return false;
   }
-`;
+  if (file.size > MAX_DOCUMENT_SIZE) {
+    message.error("File must be 5 MB or smaller.");
+    return false;
+  }
+  return true;
+};
 
 interface FormValues {
-  vehicleNumber: string;
+  vehicle_number: string;
   model: string;
-  yearOfMake: string;
-  colour: string;
-  seats: string;
-  insurance: string;
-  roadWorthy: string;
+  make_year: string;
+  color: string;
+  seat_count: string;
+  status: BusStatus;
+  insurance_expiry: string;
+  roadworthy_expiry: string;
 }
+
+const currentYear = new Date().getFullYear();
 
 export default function CreateBus({
   open,
   setOpen,
-  refetch,
 }: {
   open: boolean;
   setOpen: (val: boolean) => void;
-  refetch?: () => void;
 }) {
-  const searchParams = useSearch<LocationGenerics>();
   const navigate = useNavigate<LocationGenerics>();
-  const currentUser = useReactiveVar(currentUserVar);
+  const { profile } = useAuth();
+  const createBus = useCreateBus();
+  const updateBus = useUpdateBus();
+  const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
+  const [roadworthyFile, setRoadworthyFile] = useState<File | null>(null);
 
-  const [createBus, { loading }] = useMutation(CREATE_BUS);
-
-  const form = useFormik({
+  const form = useFormik<FormValues>({
     initialValues: {
-      vehicleNumber: "",
+      vehicle_number: "",
       model: "",
-      yearOfMake: "",
-      colour: "",
-      seats: "",
-      insurance: "",
-      roadWorthy: "",
+      make_year: "",
+      color: "",
+      seat_count: "",
+      status: "active",
+      insurance_expiry: "",
+      roadworthy_expiry: "",
     },
     validationSchema: Yup.object({
-      vehicleNumber: Yup.string()
+      vehicle_number: Yup.string()
         .required("Vehicle number is required")
-        .matches(/^[A-Za-z0-9\s]+$/, "Invalid vehicle number format")
-        .max(20, "Vehicle number must be at most 20 characters"),
+        .max(50, "Vehicle number must be at most 50 characters"),
 
-      model: Yup.string()
-        .required("Model is required")
-        .max(50, "Model must be at most 50 characters")
-        .matches(/^[A-Z][a-zA-Z]*$/, "Model must start with a capital letter"),
+      model: Yup.string().max(100, "Model must be at most 100 characters"),
 
-      yearOfMake: Yup.number()
-        .required("Year of make is required")
+      make_year: Yup.number()
+        .typeError("Year of make must be a number")
         .integer("Year of make must be an integer")
-        .min(1900, "Invalid year of make")
-        .max(new Date().getFullYear(), "Invalid year of make"),
+        .min(1970, "Year of make must be 1970 or later")
+        .max(currentYear + 1, `Year of make must be ${currentYear + 1} or earlier`),
 
-      colour: Yup.string()
-        .required("Colour is required")
-        .max(30, "Colour must be at most 30 characters")
-        .matches(/^[A-Z][a-zA-Z]*$/, "Colour must start with a capital letter"),
+      color: Yup.string().max(30, "Colour must be at most 30 characters"),
 
-      seats: Yup.number()
+      seat_count: Yup.number()
+        .typeError("Seats must be a number")
         .required("Number of seats is required")
         .integer("Number of seats must be an integer")
-        .min(1, "Invalid number of seats")
-        .max(30, "Invalid number of seats"),
-
-      insurance: Yup.string().required("Insurance document is required"),
-
-      roadWorthy: Yup.string().required("Roadworthy document is required"),
+        .positive("Number of seats must be a positive number"),
     }),
-    onSubmit: async (values: FormValues) => {
-      createBus({
-        variables: {
-          input: {
-            busCompany: currentUser?.busCompany?._id,
-            colour: values.colour,
-            createdBy: currentUser?._id,
-            insurance: values.insurance,
-            model: values.model,
-            numberOfSeats: parseInt(values.seats, 10),
-            roadWorthy: values.roadWorthy,
-            status: "ACTIVE",
-            vehicleNumber: values.vehicleNumber,
-            yearOfMake: parseInt(values.yearOfMake, 10),
-          },
-        },
-      })
-        .then(({ data }) => {
-          if (data?.createBus?._id) {
-            toast(
-              JSON.stringify({
-                type: "success",
-                title: "Bus Created Successfully",
-              })
+    onSubmit: async (values) => {
+      if (!profile?.company_id) return;
+
+      try {
+        const bus = await createBus.mutateAsync({
+          company_id: profile.company_id,
+          vehicle_number: values.vehicle_number,
+          model: values.model || undefined,
+          make_year: values.make_year ? parseInt(values.make_year, 10) : undefined,
+          color: values.color || undefined,
+          seat_count: parseInt(values.seat_count, 10),
+          status: values.status,
+          insurance_doc_path: undefined,
+          insurance_expiry: values.insurance_expiry || undefined,
+          roadworthy_doc_path: undefined,
+          roadworthy_expiry: values.roadworthy_expiry || undefined,
+        });
+
+        const updates: { insurance_doc_path?: string; roadworthy_doc_path?: string } = {};
+        const uploadFailures: string[] = [];
+
+        if (insuranceFile) {
+          try {
+            updates.insurance_doc_path = await uploadBusDocument(
+              profile.company_id,
+              bus.id,
+              "insurance",
+              insuranceFile
             );
-            setOpen(false);
+          } catch {
+            uploadFailures.push("insurance document");
           }
-        })
-        .catch((e) => {
+        }
+
+        if (roadworthyFile) {
+          try {
+            updates.roadworthy_doc_path = await uploadBusDocument(
+              profile.company_id,
+              bus.id,
+              "roadworthy",
+              roadworthyFile
+            );
+          } catch {
+            uploadFailures.push("roadworthy document");
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await updateBus.mutateAsync({ id: bus.id, payload: updates });
+        }
+
+        if (uploadFailures.length > 0) {
+          toast(
+            JSON.stringify({
+              type: "error",
+              title: `Bus created, but couldn't upload: ${uploadFailures.join(", ")}. You can add these from Edit.`,
+            })
+          );
+        } else {
+          toast(
+            JSON.stringify({ type: "success", title: "Bus Created Successfully" })
+          );
+        }
+
+        form.resetForm();
+        setInsuranceFile(null);
+        setRoadworthyFile(null);
+        setOpen(false);
+      } catch (e: any) {
+        if (e?.code === "23505") {
+          form.setFieldError(
+            "vehicle_number",
+            "A bus with this vehicle number already exists"
+          );
+        } else {
           toast(
             JSON.stringify({
               type: "failed",
-              title: e?.message,
+              title: e?.message || "Something went wrong",
             })
           );
-        });
+        }
+      }
     },
-  });
-
-  console.log(form.values);
-  console.log(form.errors);
-
-  const { mutate: uploadFile } = useMutationTanStack({
-    mutationKey: ["uploadFile"],
-    mutationFn: FileServer.UPLOAD_FILE,
   });
 
   const InsuranceProps: UploadProps = {
     name: "insurance",
     multiple: false,
     listType: "picture",
-    customRequest: async ({ file, onSuccess, onError }: any) => {
-      try {
-        const data = new FormData();
-        data.append("insurance", file);
-        uploadFile(data, {
-          onSuccess: (data) => {
-            if (onSuccess) {
-              onSuccess(data.data.insurance[0].url, file);
-            }
-          },
-        });
-      } catch (error: any) {
-        if (onError) {
-          onError(error);
-        }
-      }
+    fileList: insuranceFile
+      ? [{ uid: "-1", name: insuranceFile.name, status: "done" }]
+      : [],
+    beforeUpload: (file) => {
+      if (!validateDocumentFile(file)) return Upload.LIST_IGNORE;
+      setInsuranceFile(file);
+      return false;
     },
-    onChange(info) {
-      const { status } = info.file;
-      if (status === "done") {
-        form.setFieldValue("insurance", info.file.response);
-        message.success(`${info.file.name} file uploaded successfully.`);
-      } else if (status === "error") {
-        message.error(`${info.file.name} file upload failed.`);
-      }
-    },
-    onDrop(e) {
-      console.log("Dropped files", e.dataTransfer.files);
-    },
+    onRemove: () => setInsuranceFile(null),
   };
 
   const roadWorthyProps: UploadProps = {
-    name: "roadWorthy",
+    name: "roadworthy",
     multiple: false,
     listType: "picture",
-    customRequest: async ({ file, onSuccess, onError }: any) => {
-      try {
-        const data = new FormData();
-        data.append("roadWorthy", file);
-        uploadFile(data, {
-          onSuccess: (data) => {
-            if (onSuccess) {
-              onSuccess(data.data.roadWorthy[0].url, file);
-            }
-          },
-        });
-      } catch (error: any) {
-        if (onError) {
-          onError(error);
-        }
-      }
+    fileList: roadworthyFile
+      ? [{ uid: "-1", name: roadworthyFile.name, status: "done" }]
+      : [],
+    beforeUpload: (file) => {
+      if (!validateDocumentFile(file)) return Upload.LIST_IGNORE;
+      setRoadworthyFile(file);
+      return false;
     },
-    onChange(info) {
-      const { status } = info.file;
-      if (status === "done") {
-        form.setFieldValue("roadWorthy", info.file.response);
-        message.success(`${info.file.name} file uploaded successfully.`);
-      } else if (status === "error") {
-        message.error(`${info.file.name} file upload failed.`);
-      }
-    },
-    onDrop(e) {
-      console.log("Dropped files", e.dataTransfer.files);
-    },
+    onRemove: () => setRoadworthyFile(null),
   };
+
+  const loading = createBus.isLoading || updateBus.isLoading;
 
   return (
     <Modal
@@ -255,6 +255,8 @@ export default function CreateBus({
             className="inline-flex justify-center px-4 md:px-16 py-2 text-sm font-medium text-primary bg-white border border-primary rounded-md hover:bg-gray-50 focus:outline-none"
             onClick={() => {
               form.resetForm();
+              setInsuranceFile(null);
+              setRoadworthyFile(null);
               setOpen(false);
             }}
           >
@@ -272,33 +274,27 @@ export default function CreateBus({
             <div className="grid grid-cols-3 gap-6 mt-2">
               <div className="">
                 <TextInput
-                  id="vehicleNumber"
+                  id="vehicle_number"
                   label="Vehicle Number"
                   type="text"
-                  // step={0.01}
-                  // postText="GHS"
                   placeholder="e.g. GE-329-23"
                   {...form}
                 />
               </div>
               <div className="">
                 <TextInput
-                  id="yearOfMake"
+                  id="make_year"
                   label="Year of Make"
                   type="text"
-                  // step={0.01}
-                  // postText="GHS"
                   placeholder="e.g. 2023"
                   {...form}
                 />
               </div>
               <div className="">
                 <TextInput
-                  id="seats"
+                  id="seat_count"
                   label="Seats"
                   type="text"
-                  // step={0.01}
-                  // postText="GHS"
                   placeholder="e.g. 30"
                   {...form}
                 />
@@ -308,20 +304,24 @@ export default function CreateBus({
                   id="model"
                   label="Model"
                   type="text"
-                  // step={0.01}
-                  // postText="GHS"
                   placeholder="e.g. Ford Transit Van"
                   {...form}
                 />
               </div>
               <div className="">
                 <TextInput
-                  id="colour"
+                  id="color"
                   label="Colour"
                   type="text"
-                  // step={0.01}
-                  // postText="GHS"
                   placeholder="e.g. Colour"
+                  {...form}
+                />
+              </div>
+              <div className="">
+                <SelectInput
+                  id="status"
+                  label="Status"
+                  options={STATUS_OPTIONS}
                   {...form}
                 />
               </div>
@@ -349,11 +349,17 @@ export default function CreateBus({
                         or drag and drop
                       </p>
                       <p className="text-xs text-gray-500 font-manrope">
-                        pdf or JPG (max. 800x400px)
+                        PDF, JPG or PNG (max. 5MB)
                       </p>
                     </div>
                   </div>
                 </Dragger>
+                <TextInput
+                  id="insurance_expiry"
+                  label="Insurance Expiry"
+                  type="date"
+                  {...form}
+                />
               </div>
               <div className="flex flex-1 flex-col gap-y-2">
                 <label
@@ -375,11 +381,17 @@ export default function CreateBus({
                         or drag and drop
                       </p>
                       <p className="text-xs text-gray-500 font-manrope">
-                        pdf or JPG (max. 800x400px)
+                        PDF, JPG or PNG (max. 5MB)
                       </p>
                     </div>
                   </div>
                 </Dragger>
+                <TextInput
+                  id="roadworthy_expiry"
+                  label="Roadworthy Expiry"
+                  type="date"
+                  {...form}
+                />
               </div>
             </div>
           </div>

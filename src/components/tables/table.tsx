@@ -1,11 +1,10 @@
-import { Dispatch, FC, SetStateAction } from "react";
+import { Dispatch, FC, ReactNode, SetStateAction } from "react";
 import TableBodyComponent from "./table-body";
 import TableEmptyComponent from "./table-empty";
 import TableFooterComponent from "./table-footer";
 import TableHeaderComponent from "./table-header";
 import TableGridBodyComponent from "./table-grid-body";
 import { useUrlState } from "../../utils";
-import { skip } from "node:test";
 
 interface TableComponentProps<TData = any> {
   title: string;
@@ -43,6 +42,7 @@ interface TableComponentProps<TData = any> {
   onSearchSubmit?: (search: string, searchField: string) => void;
   defaultSearchField?: string;
   defaultView?: "grid" | "list";
+  emptyStateAction?: ReactNode;
 }
 
 const TableComponent: FC<TableComponentProps> = ({
@@ -68,6 +68,7 @@ const TableComponent: FC<TableComponentProps> = ({
   hasSearch,
   searchOptions,
   defaultSearchField,
+  emptyStateAction,
 }) => {
   const [viewType] = useUrlState("view-type");
   const hasGridMode = !!renderGridItem;
@@ -92,7 +93,7 @@ const TableComponent: FC<TableComponentProps> = ({
         )}
       </div>
       {!loading && (data?.total || 0) === 0 ? (
-        <TableEmptyComponent />
+        <TableEmptyComponent title={title} action={emptyStateAction} />
       ) : (
         <>
           {viewType === "grid" && hasGridMode ? (

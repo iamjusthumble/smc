@@ -1,11 +1,15 @@
-import { FC } from "react";
+import { FC, ReactNode } from "react";
 import { InboxIcon } from "@heroicons/react/24/outline";
 
 interface TableEmptyComponentProps {
   title?: string;
+  action?: ReactNode;
 }
 
-const TableEmptyComponent: FC<TableEmptyComponentProps> = ({ title }) => {
+const TableEmptyComponent: FC<TableEmptyComponentProps> = ({
+  title,
+  action,
+}) => {
   return (
     <div className="flex min-h-[400px] flex-1 items-center justify-center rounded-xl border border-gray-200">
       <div className="text-center">
@@ -19,6 +23,7 @@ const TableEmptyComponent: FC<TableEmptyComponentProps> = ({ title }) => {
         <p className="mt-1 text-sm text-gray-500">
           New {title || "records"} will show up here once they&apos;re added.
         </p>
+        {action && <div className="mt-4">{action}</div>}
       </div>
     </div>
   );
